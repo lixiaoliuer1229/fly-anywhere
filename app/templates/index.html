@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>机票价格监控</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f7fa; color: #333; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 24px 32px; }
+        .header h1 { font-size: 24px; font-weight: 600; }
+        .header p { opacity: 0.85; margin-top: 4px; font-size: 14px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+        .card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 24px; margin-bottom: 20px; }
+        .card h2 { font-size: 16px; color: #666; margin-bottom: 16px; }
+        .form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+        .form-group { display: flex; flex-direction: column; gap: 4px; }
+        .form-group label { font-size: 13px; color: #888; }
+        .form-group input, .form-group select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; outline: none; }
+        .form-group input:focus, .form-group select:focus { border-color: #667eea; }
+        .btn { padding: 8px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s; }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-primary:hover { background: #5a6fd6; }
+        .btn-danger { background: #ff4757; color: white; }
+        .btn-danger:hover { background: #e83c4d; }
+        .btn-sm { padding: 4px 12px; font-size: 12px; }
+        .route-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+        .route-tag { background: #f0f2f5; padding: 8px 14px; border-radius: 8px; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+        .route-tag .delete { cursor: pointer; color: #999; font-size: 16px; }
+        .route-tag .delete:hover { color: #ff4757; }
+        .price-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-top: 16px; }
+        .price-card { background: #f8f9ff; border-radius: 8px; padding: 16px; border-left: 4px solid #667eea; }
+        .price-card .route { font-weight: 600; font-size: 15px; }
+        .price-card .price { font-size: 28px; font-weight: 700; color: #667eea; margin: 8px 0; }
+        .price-card .meta { font-size: 12px; color: #999; }
+        #chart { width: 100%; height: 400px; }
+        .route-select { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
+        .empty { text-align: center; color: #999; padding: 40px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>机票价格监控</h1>
+        <p>追踪机票价格波动，找到最佳购票时机</p>
+    </div>
+    <div class="container">
+        <!-- 添加航线 -->
+        <div class="card">
+            <h2>添加监控航线</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>出发城市 (IATA)</label>
+                    <input id="dep" placeholder="PEK" />
+                </div>
+                <div class="form-group">
+                    <label>到达城市 (IATA)</label>
+                    <input id="arr" placeholder="SHA" />
+                </div>
+                <div class="form-group">
+                    <label>航空公司</label>
+                    <input id="airline" placeholder="可选" />
+                </div>
+                <button class="btn btn-primary" onclick="addRoute()">添加</button>
+            </div>
+            <div class="route-list" id="routeList"></div>
+        </div>
+
+        <!-- 最新价格 -->
+        <div class="card">
+            <h2>最新价格</h2>
+            <div class="price-cards" id="priceCards">
+                <div class="empty">暂无数据，请先添加航线并抓取价格</div>
+            </div>
+        </div>
+
+        <!-- 价格趋势 -->
+        <div class="card">
+            <h2>价格趋势</h2>
+            <div class="route-select">
+                <select id="chartRoute" onchange="loadChart()">
+                    <option value="">选择航线</option>
+                </select>
+            </div>
+            <div id="chart"></div>
+        </div>
+    </div>
+
+    <script>
+        let routes = [];
+        let chart = echarts.init(document.getElementById('chart'));
+
+        async function api(path, opts) {
+            const resp = await fetch(path, opts);
+            return resp.json();
+        }
+
+        async function loadRoutes() {
+            routes = await api('/api/routes/');
+            renderRoutes();
+            renderRouteSelect();
+            loadLatestPrices();
+        }
+
+        function renderRoutes() {
+            const el = document.getElementById('routeList');
+            if (!routes.length) { el.innerHTML = '<span style="color:#999">暂无航线</span>'; return; }
+            el.innerHTML = routes.map(r =>
+                `<div class="route-tag">
+                    ${r.departure_city} → ${r.arrival_city} ${r.airline ? '(' + r.airline + ')' : ''}
+                    <span class="delete" onclick="deleteRoute(${r.id})">×</span>
+                </div>`
+            ).join('');
+        }
+
+        function renderRouteSelect() {
+            const sel = document.getElementById('chartRoute');
+            sel.innerHTML = '<option value="">选择航线</option>' +
+                routes.map(r => `<option value="${r.id}">${r.departure_city} → ${r.arrival_city}</option>`).join('');
+        }
+
+        async function addRoute() {
+            const dep = document.getElementById('dep').value.trim();
+            const arr = document.getElementById('arr').value.trim();
+            const airline = document.getElementById('airline').value.trim();
+            if (!dep || !arr) return alert('请填写出发和到达城市');
+            await api('/api/routes/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({departure_city: dep, arrival_city: arr, airline})
+            });
+            document.getElementById('dep').value = '';
+            document.getElementById('arr').value = '';
+            document.getElementById('airline').value = '';
+            loadRoutes();
+        }
+
+        async function deleteRoute(id) {
+            await api(`/api/routes/${id}`, {method: 'DELETE'});
+            loadRoutes();
+        }
+
+        async function loadLatestPrices() {
+            const data = await api('/api/prices/latest');
+            const el = document.getElementById('priceCards');
+            if (!data.length) { el.innerHTML = '<div class="empty">暂无数据，请先添加航线并抓取价格</div>'; return; }
+            el.innerHTML = data.map(p =>
+                `<div class="price-card">
+                    <div class="route">${p.departure} → ${p.arrival}</div>
+                    <div class="price">¥${p.price.toFixed(0)}</div>
+                    <div class="meta">${p.airline || '-'} · ${p.cabin_class} · ${new Date(p.scraped_at).toLocaleString()}</div>
+                </div>`
+            ).join('');
+        }
+
+        async function loadChart() {
+            const routeId = document.getElementById('chartRoute').value;
+            if (!routeId) return;
+            const data = await api(`/api/prices/${routeId}?limit=50`);
+            if (!data.length) {
+                chart.setOption({title: {text: '暂无价格数据', left: 'center', top: 'center'}});
+                return;
+            }
+            const sorted = data.reverse();
+            chart.setOption({
+                title: {text: '价格走势', left: 'center'},
+                tooltip: {trigger: 'axis', formatter: p => `${p[0].axisValue}<br/>¥${p[0].value}`},
+                xAxis: {type: 'category', data: sorted.map(p => new Date(p.scraped_at).toLocaleDateString()), axisLabel: {rotate: 30}},
+                yAxis: {type: 'value', name: '价格(元)', axisLabel: {formatter: '¥{value}'}},
+                series: [{
+                    type: 'line',
+                    data: sorted.map(p => p.price),
+                    smooth: true,
+                    areaStyle: {color: 'rgba(102,126,234,0.15)'},
+                    lineStyle: {color: '#667eea', width: 2},
+                    itemStyle: {color: '#667eea'}
+                }],
+                grid: {left: 60, right: 30, bottom: 60, top: 50}
+            });
+        }
+
+        window.addEventListener('resize', () => chart.resize());
+        loadRoutes();
+    </script>
+</body>
+</html>
