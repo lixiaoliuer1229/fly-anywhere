@@ -184,21 +184,33 @@ async def search_single_route(page: Page, tfs_url: str, origin: str, dest: str,
     results = []
     try:
         await page.goto(tfs_url, wait_until='networkidle', timeout=45000)
-        await asyncio.sleep(12)
+        await asyncio.sleep(8)
 
         body_text = str(await page.evaluate('document.body.innerText'))
 
-        # If on overview page, click "查看航班"
+        # If on overview page, click "查看航班" and wait for search results
         if '搜索结果' not in body_text and '查看航班' in body_text:
             try:
-                await page.locator('text=查看航班').first.click(timeout=3000)
-                await asyncio.sleep(15)
+                await page.locator('text=查看航班').first.click(timeout=5000)
+                await page.wait_for_load_state('networkidle', timeout=30000)
+                await asyncio.sleep(5)
                 body_text = str(await page.evaluate('document.body.innerText'))
             except:
                 pass
 
-        # Extract flights
-        lines = body_text.split('\n')
+        # Only extract prices if we're on the search results page
+        if '搜索结果' not in body_text:
+            return []
+
+        # Only look at the search results section (after "搜索结果", before footer)
+        results_start = body_text.find('搜索结果')
+        results_end = body_text.find('语言')
+        if results_end < 0:
+            results_end = len(body_text)
+        results_section = body_text[results_start:results_end]
+
+        # Extract flights from results section only
+        lines = results_section.split('\n')
         for i, line in enumerate(lines):
             price_match = re.search(r'¥([\d,]+)', line.strip())
             if not price_match:
@@ -240,10 +252,10 @@ async def search_single_route(page: Page, tfs_url: str, origin: str, dest: str,
                 "stops": stops, "duration": duration,
             })
 
-        # Fallback: regex on full text
+        # Fallback: regex on results section only
         if not results:
             seen = set()
-            for pm in re.findall(r'¥([\d,]+)', body_text):
+            for pm in re.findall(r'¥([\d,]+)', results_section):
                 try:
                     v = float(pm.replace(',', ''))
                     if 500 < v < 100000 and v not in seen:
@@ -387,16 +399,11 @@ async def main():
     print(f"模式: {'有头' if args.headed else '无头'}")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=headless,
-            args=['--disable-blink-features=AutomationControlled']
-        )
+        browser = await p.firefox.launch(headless=headless)
         ctx = await browser.new_context(
             viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             locale='zh-CN',
         )
-        await ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
         page = await ctx.new_page()
 
         # Step 1: Get place IDs
