@@ -3,4 +3,5 @@ __pycache__/
 .env
 venv/
 .idea/
+.claude/
 flight_results.json
