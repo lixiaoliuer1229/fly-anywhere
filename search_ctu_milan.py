@@ -1,15 +1,13 @@
 """
 天巡 成都→米兰 单日航班搜索
-搜索一对日期并存入数据库
+先打开浏览器让用户手动登录，等待后再抓取数据
 """
 
 import asyncio
 import re
-import sys
 from datetime import datetime
 
 from playwright.async_api import async_playwright
-
 
 # 配置
 ORIGIN = "CTU"
@@ -17,10 +15,10 @@ ORIGIN_NAME = "成都"
 DEST = "MILA"
 DEST_NAME = "米兰"
 
-# 搜索一对日期
 OUTBOUND_DATE = "2026-09-25"
 RETURN_DATE = "2026-10-07"
 
+WAIT_SECONDS = 60  # 等待用户手动登录的时间
 
 def date_to_yymmdd(date_str: str) -> str:
     dt = datetime.strptime(date_str, "%Y-%m-%d")
@@ -38,46 +36,39 @@ def build_url(origin: str, dest: str, outbound: str, return_date: str) -> str:
 
 
 async def dismiss_popups(page):
-    try:
-        # Cookie consent / close buttons
-        for selector in [
-            'button:has-text("Accept")',
-            'button:has-text("接受")',
-            'button:has-text("同意")',
-            'button:has-text("OK")',
-            'button:has-text("Got it")',
-            '[aria-label="Close"]',
-            '[class*="close"]',
-        ]:
-            try:
-                btn = page.locator(selector).first
-                if await btn.is_visible(timeout=1500):
-                    await btn.click()
-                    await asyncio.sleep(0.5)
-            except:
-                pass
-    except:
-        pass
+    for selector in [
+        'button:has-text("Accept")',
+        'button:has-text("接受")',
+        'button:has-text("同意")',
+        'button:has-text("OK")',
+        'button:has-text("Got it")',
+        '[aria-label="Close"]',
+        '[class*="close"]',
+    ]:
+        try:
+            btn = page.locator(selector).first
+            if await btn.is_visible(timeout=1500):
+                await btn.click()
+                await asyncio.sleep(0.5)
+        except:
+            pass
 
 
 async def extract_flights(page) -> list[dict]:
-    """Extract flight results from the page text."""
+    """从页面提取航班数据"""
     flights = []
 
     try:
-        # Wait for results
-        await page.wait_for_load_state("networkidle", timeout=40000)
-        await asyncio.sleep(8)
+        await page.wait_for_load_state("networkidle", timeout=30000)
+        await asyncio.sleep(5)
 
         body_text = await page.evaluate("document.body.innerText")
 
-        # Debug: save page text
         with open("debug_page.txt", "w", encoding="utf-8") as f:
             f.write(body_text)
         print(f"    [debug] 页面文本已保存到 debug_page.txt ({len(body_text)} chars)")
 
-        # Try to find price patterns
-        # Tianxun uses CN¥ or ¥
+        # 提取价格
         price_pattern = re.compile(r'(?:CN¥|¥|￥)\s*([\d,]+)')
         prices_found = price_pattern.findall(body_text)
 
@@ -97,11 +88,10 @@ async def extract_flights(page) -> list[dict]:
                 except:
                     pass
 
-        # Also try extracting from structured elements
+        # 结构化提取
         flight_data = await page.evaluate("""
             () => {
                 const results = [];
-                // Various selectors for flight cards
                 const cards = document.querySelectorAll(
                     '[class*="UpperTicketBody"], [class*="FlightResult"], ' +
                     '[data-testid*="itinerary"], [class*="resultInner"], ' +
@@ -145,7 +135,7 @@ async def extract_flights(page) -> list[dict]:
     except Exception as e:
         print(f"    提取出错: {e}")
 
-    # Dedupe by price
+    # 去重
     seen = set()
     unique = []
     for f in flights:
@@ -156,7 +146,7 @@ async def extract_flights(page) -> list[dict]:
 
 
 async def save_to_db(flights: list[dict]):
-    """Save flights to database."""
+    """存入数据库"""
     from app.database import SessionLocal, engine, Base
     from app.models import Route, Price
 
@@ -164,7 +154,6 @@ async def save_to_db(flights: list[dict]):
     db = SessionLocal()
 
     try:
-        # Find or create route
         route = db.query(Route).filter(
             Route.departure_city == ORIGIN_NAME,
             Route.arrival_city == DEST_NAME,
@@ -207,42 +196,47 @@ async def main():
     print(f"URL: {url}\n")
 
     async with async_playwright() as p:
-        browser = await p.firefox.launch(headless=True)
+        # 使用独立的浏览器实例（不用 Chrome 用户目录，避免冲突）
+        browser = await p.chromium.launch(
+            headless=False,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
         context = await browser.new_context(
             viewport={"width": 1920, "height": 1080},
             locale="zh-CN",
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         )
         page = await context.new_page()
 
-        print("正在加载页面...")
+        print("正在打开页面...")
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
         except Exception as e:
-            print(f"页面加载超时，继续尝试: {e}")
+            print(f"页面加载超时，继续: {e}")
 
         await asyncio.sleep(3)
         await dismiss_popups(page)
-        await asyncio.sleep(2)
 
-        # Check if we need to click "view flights" or similar
-        body = await page.evaluate("document.body.innerText")
-        if "查看航班" in body or "View flights" in body:
-            print("发现'查看航班'按钮，点击中...")
-            try:
-                await page.locator("text=查看航班").first.click(timeout=5000)
-                await asyncio.sleep(5)
-            except:
-                pass
+        print(f"\n{'='*50}")
+        print(f"浏览器已打开，请手动完成登录/验证操作")
+        print(f"等待 {WAIT_SECONDS} 秒后自动开始抓取数据...")
+        print(f"{'='*50}\n")
+
+        # 等待用户手动操作
+        for i in range(WAIT_SECONDS):
+            remaining = WAIT_SECONDS - i
+            if remaining % 10 == 0:
+                print(f"  还剩 {remaining} 秒...")
+            await asyncio.sleep(1)
+
+        print("\n正在截取当前页面...")
+        await page.screenshot(path="debug_screenshot.png", full_page=True)
+        print("[debug] 截图已保存到 debug_screenshot.png")
 
         print("正在提取航班数据...")
         flights = await extract_flights(page)
 
-        # Take a screenshot for debugging
-        await page.screenshot(path="debug_screenshot.png", full_page=True)
-        print("[debug] 截图已保存到 debug_screenshot.png")
-
         await page.close()
-        await context.close()
         await browser.close()
 
     if flights:
@@ -254,7 +248,6 @@ async def main():
             print(f"  #{i:2d}  ¥{f['price']:>8,.0f}  {info}")
         print("-" * 60)
 
-        # Save to database
         await save_to_db(flights)
     else:
         print("\n未找到航班数据，请检查 debug_screenshot.png 和 debug_page.txt")
