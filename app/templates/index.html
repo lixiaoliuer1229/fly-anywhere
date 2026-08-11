@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>机票价格监控</title>
+    <title>AI 机票搜索</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -37,14 +37,40 @@
         #chart { width: 100%; height: 400px; }
         .route-select { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
         .empty { text-align: center; color: #999; padding: 40px; }
+        .ai-card { border: 1px solid #e5e8ff; }
+        .search-box { display: flex; gap: 12px; }
+        .search-box input { flex: 1; padding: 13px 16px; border: 1px solid #d7dcf7; border-radius: 9px; font-size: 15px; outline: none; }
+        .search-box input:focus { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,.12); }
+        .search-box .btn { min-width: 120px; }
+        .hint, .warning { margin-top: 10px; color: #8a8f9f; font-size: 12px; line-height: 1.6; }
+        .warning { padding: 10px 12px; border-radius: 7px; color: #8a6415; background: #fff8e6; }
+        .status { padding: 28px; text-align: center; color: #667eea; }
+        .offer-list { display: grid; gap: 12px; margin-top: 16px; }
+        .offer { padding: 16px; border: 1px solid #eaecf5; border-radius: 9px; display: grid; grid-template-columns: 1fr auto; gap: 12px; }
+        .offer-main { min-width: 0; }
+        .offer-route { font-weight: 650; }
+        .offer-meta, .offer-evidence { margin-top: 7px; color: #73798a; font-size: 13px; line-height: 1.5; }
+        .offer-price { color: #667eea; font-weight: 750; font-size: 24px; white-space: nowrap; }
+        .offer a { color: #667eea; text-decoration: none; }
+        @media (max-width: 640px) { .search-box { flex-direction: column; } .offer { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>机票价格监控</h1>
-        <p>追踪机票价格波动，找到最佳购票时机</p>
+        <h1>AI 机票搜索</h1>
+        <p>LangChain 调度 Tavily 联网检索，帮你发现公开网页中的机票参考价</p>
     </div>
     <div class="container">
+        <div class="card ai-card">
+            <h2>告诉 AI 你的行程</h2>
+            <div class="search-box">
+                <input id="aiQuery" placeholder="例如：9 月 10 日北京飞东京，1 人单程经济舱" onkeydown="if(event.key==='Enter') searchWithAI()" />
+                <button id="aiSearchBtn" class="btn btn-primary" onclick="searchWithAI()">联网查询</button>
+            </div>
+            <div class="hint">请尽量包含出发地、目的地、日期、单程/往返、人数和舱位。结果是网页参考价，不代表实时库存。</div>
+            <div id="aiResults"></div>
+        </div>
+
         <!-- 添加航线 -->
         <div class="card">
             <h2>添加监控航线</h2>
@@ -92,7 +118,52 @@
 
         async function api(path, opts) {
             const resp = await fetch(path, opts);
-            return resp.json();
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || `请求失败 (${resp.status})`);
+            return data;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+        }
+
+        async function searchWithAI() {
+            const query = document.getElementById('aiQuery').value.trim();
+            if (query.length < 3) return alert('请描述你的行程');
+            const button = document.getElementById('aiSearchBtn');
+            const results = document.getElementById('aiResults');
+            button.disabled = true;
+            button.textContent = '查询中…';
+            results.innerHTML = '<div class="status">AI 正在规划检索并阅读网页，通常需要十几秒…</div>';
+            try {
+                const data = await api('/api/ai/search', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({query})
+                });
+                const offers = data.offers || [];
+                results.innerHTML = `
+                    <div class="offer-evidence">${escapeHtml(data.summary)}</div>
+                    ${offers.length ? `<div class="offer-list">${offers.map(renderOffer).join('')}</div>` : '<div class="empty">没有找到可确认的公开价格，请补充日期或换一个描述重试。</div>'}
+                    <div class="warning">${escapeHtml(data.warning)}</div>`;
+            } catch (error) {
+                results.innerHTML = `<div class="warning">${escapeHtml(error.message)}</div>`;
+            } finally {
+                button.disabled = false;
+                button.textContent = '联网查询';
+            }
+        }
+
+        function renderOffer(offer) {
+            const price = offer.price == null ? '价格未确认' : `${escapeHtml(offer.currency)} ${Number(offer.price).toLocaleString()}`;
+            return `<div class="offer">
+                <div class="offer-main">
+                    <div class="offer-route">${escapeHtml(offer.departure)} → ${escapeHtml(offer.arrival)}</div>
+                    <div class="offer-meta">${escapeHtml(offer.airline)} ${escapeHtml(offer.flight_number || '')} · ${escapeHtml(offer.cabin_class)} · ${escapeHtml(offer.departure_time || '时间未确认')}</div>
+                    <div class="offer-evidence">${escapeHtml(offer.evidence)} · <a href="${escapeHtml(offer.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(offer.source_title)}</a></div>
+                </div>
+                <div class="offer-price">${price}</div>
+            </div>`;
         }
 
         async function loadRoutes() {

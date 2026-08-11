@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     API_SOURCE: str = "aviationstack"  # aviationstack | amadeus
     SCRAPE_INTERVAL_HOURS: int = 12
 
+    # AI 联网搜索。Tavily 负责检索网页，LLM 负责规划检索并整理结构化结果。
+    TAVILY_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str | None = None
+    AI_MODEL: str = "gpt-4.1-mini"
+
     class Config:
         env_file = str(BASE_DIR / ".env")
 

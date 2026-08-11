@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
 from app.database import engine, Base
-from app.routers import flights, prices
+from app.routers import ai_search, flights, prices
 from app.services.scheduler import start_scheduler
 
 templates = Jinja2Templates(directory="app/templates")
@@ -21,10 +21,11 @@ async def lifespan(app: FastAPI):
     # Shutdown
 
 
-app = FastAPI(title="机票价格监控", lifespan=lifespan)
+app = FastAPI(title="AI 机票搜索与价格监控", lifespan=lifespan)
 
 app.include_router(flights.router)
 app.include_router(prices.router)
+app.include_router(ai_search.router)
 
 
 @app.get("/", response_class=HTMLResponse)
