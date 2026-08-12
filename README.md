@@ -32,20 +32,32 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-编辑 `.env`，至少配置模型和 Tavily：
+编辑 `.env`，至少配置一种模型和 Tavily。OpenAI 示例：
 
 ```
 DATABASE_URL=mysql+pymysql://user:password@localhost/fly_anywhere
 OPENAI_API_KEY=your_openai_api_key
+AI_PROVIDER=openai
 AI_MODEL=gpt-4.1-mini
 TAVILY_API_KEY=tvly-your_tavily_api_key
 ```
 
-如果使用 OpenAI 兼容服务，可额外设置 `OPENAI_BASE_URL`。原有定时监控所需的 `API_KEY`、`API_SECRET` 等配置见 `.env.example`。
+Anthropic 或 Anthropic 兼容服务示例：
+
+```text
+AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=your_anthropic_api_key
+ANTHROPIC_BASE_URL=
+ANTHROPIC_MODEL=claude-sonnet-4-6
+TAVILY_API_KEY=tvly-your_tavily_api_key
+```
+
+原有定时监控所需的 `API_KEY`、`API_SECRET` 等配置见 `.env.example`。`.env` 已被 Git 忽略，不得把真实密钥写入 `.env.example` 或其他受版本控制的文件。
 
 ### 3. 启动服务
 
 ```bash
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
@@ -60,6 +72,8 @@ uvicorn app.main:app --reload
 ```
 
 AI 会搜索公开网页并展示可追溯的参考结果。输入越完整，结果越有意义。页面下方仍可使用原有航线监控与价格趋势功能。
+
+每次 AI 查询都会记录到 `search_runs`，可确认的结构化结果记录到 `flight_offers`；未来的群消息投递状态由 `notification_deliveries` 保存。数据库结构统一通过 Alembic 迁移管理。
 
 ## API 接口
 

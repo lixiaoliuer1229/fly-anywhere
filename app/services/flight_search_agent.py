@@ -27,19 +27,32 @@ SYSTEM_PROMPT = """你是一个谨慎的机票价格搜索助手。今天是 {to
 def _build_agent():
     if not settings.TAVILY_API_KEY:
         raise RuntimeError("未配置 TAVILY_API_KEY")
-    if not settings.OPENAI_API_KEY:
-        raise RuntimeError("未配置 OPENAI_API_KEY")
+    if settings.AI_PROVIDER == "anthropic":
+        if not settings.ANTHROPIC_API_KEY:
+            raise RuntimeError("未配置 ANTHROPIC_API_KEY")
+        from langchain_anthropic import ChatAnthropic
 
-    model_kwargs = {
-        "model": settings.AI_MODEL,
-        "api_key": settings.OPENAI_API_KEY,
-        "temperature": 0,
-        "timeout": 60,
-    }
-    if settings.OPENAI_BASE_URL:
-        model_kwargs["base_url"] = settings.OPENAI_BASE_URL
-
-    model = ChatOpenAI(**model_kwargs)
+        model_kwargs = {
+            "model": settings.ANTHROPIC_MODEL or settings.AI_MODEL,
+            "api_key": settings.ANTHROPIC_API_KEY,
+            "temperature": 0,
+            "timeout": 60,
+        }
+        if settings.ANTHROPIC_BASE_URL:
+            model_kwargs["base_url"] = settings.ANTHROPIC_BASE_URL
+        model = ChatAnthropic(**model_kwargs)
+    else:
+        if not settings.OPENAI_API_KEY:
+            raise RuntimeError("未配置 OPENAI_API_KEY")
+        model_kwargs = {
+            "model": settings.AI_MODEL,
+            "api_key": settings.OPENAI_API_KEY,
+            "temperature": 0,
+            "timeout": 60,
+        }
+        if settings.OPENAI_BASE_URL:
+            model_kwargs["base_url"] = settings.OPENAI_BASE_URL
+        model = ChatOpenAI(**model_kwargs)
     search = TavilySearch(
         tavily_api_key=settings.TAVILY_API_KEY,
         max_results=8,

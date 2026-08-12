@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
@@ -6,6 +6,14 @@ class RouteCreate(BaseModel):
     departure_city: str
     arrival_city: str
     airline: str = ""
+    departure_date: date | None = None
+    return_date: date | None = None
+    trip_type: str = "one_way"
+    adults: int = Field(default=1, ge=1, le=9)
+    cabin_class: str = "economy"
+    target_price: float | None = Field(default=None, ge=0)
+    currency: str = Field(default="CNY", min_length=3, max_length=3)
+    enabled: bool = True
 
 
 class RouteOut(BaseModel):
@@ -13,6 +21,14 @@ class RouteOut(BaseModel):
     departure_city: str
     arrival_city: str
     airline: str
+    departure_date: date | None
+    return_date: date | None
+    trip_type: str
+    adults: int
+    cabin_class: str
+    target_price: float | None
+    currency: str
+    enabled: bool
     created_at: datetime
 
     class Config:

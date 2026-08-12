@@ -5,7 +5,6 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-from app.database import engine, Base
 from app.routers import ai_search, flights, prices
 from app.services.scheduler import start_scheduler
 
@@ -14,8 +13,7 @@ templates = Jinja2Templates(directory="app/templates")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables and start scheduler
-    Base.metadata.create_all(bind=engine)
+    # 数据库结构由 Alembic 管理，避免 create_all 掩盖缺失迁移。
     start_scheduler()
     yield
     # Shutdown

@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str | None = None
     AI_MODEL: str = "gpt-4.1-mini"
+    AI_PROVIDER: str = "openai"  # openai | anthropic
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_BASE_URL: str | None = None
+    ANTHROPIC_MODEL: str = ""
 
     class Config:
         env_file = str(BASE_DIR / ".env")
