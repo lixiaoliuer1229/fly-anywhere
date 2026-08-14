@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 
 from langchain.agents import create_agent
@@ -13,6 +14,8 @@ SYSTEM_PROMPT = """你是一个谨慎的机票价格搜索助手。今天是 {to
 
 必须使用 Tavily 搜索公开网页后再回答。搜索时把用户给出的城市、日期、单程/往返、
 人数和舱位写进查询；信息不完整时可以搜索已有条件，但必须在 summary 中指出缺失条件。
+只允许执行一轮搜索；这一轮最多并行调用 Tavily 两次。收到搜索结果后不得再次搜索，
+必须立即调用 FlightSearchResult 结构化输出工具结束任务。
 
 规则：
 1. 只收录搜索结果页面明确支持的价格，绝不猜测或补全价格。
@@ -52,6 +55,10 @@ def _build_agent():
         }
         if settings.OPENAI_BASE_URL:
             model_kwargs["base_url"] = settings.OPENAI_BASE_URL
+        # DeepSeek V4 默认启用 thinking。Agent 多轮工具调用若不回传
+        # reasoning_content 会失败；机票检索使用非思考模式更快也更稳定。
+        if "api.deepseek.com" in (settings.OPENAI_BASE_URL or ""):
+            model_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
         model = ChatOpenAI(**model_kwargs)
     search = TavilySearch(
         tavily_api_key=settings.TAVILY_API_KEY,
@@ -72,7 +79,13 @@ def _build_agent():
 async def search_flight_prices(query: str) -> FlightSearchResult:
     """让 LangChain Agent 联网搜索并返回可直接展示的结构化参考价。"""
     agent = _build_agent()
-    state = await agent.ainvoke({"messages": [{"role": "user", "content": query}]})
+    state = await asyncio.wait_for(
+        agent.ainvoke(
+            {"messages": [{"role": "user", "content": query}]},
+            config={"recursion_limit": 6},
+        ),
+        timeout=120,
+    )
     result = state.get("structured_response")
     if not isinstance(result, FlightSearchResult):
         result = FlightSearchResult.model_validate(result)
