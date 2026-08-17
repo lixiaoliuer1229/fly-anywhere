@@ -86,3 +86,23 @@ class FlightSearchResult(BaseModel):
     offers: list[FlightOffer] = Field(default_factory=list)
     searched_at: datetime = Field(default_factory=datetime.now)
     warning: str = "网页搜索参考价，可能含缓存或起售价；实际价格和余票以预订页面为准。"
+
+
+class PriceTrendPoint(BaseModel):
+    searched_at: datetime
+    min_price: float
+    offer_count: int
+    search_run_id: int
+
+
+class PriceTrendSeries(BaseModel):
+    departure: str
+    arrival: str
+    currency: str
+    points: list[PriceTrendPoint]
+
+
+class PriceTrendResponse(BaseModel):
+    series: list[PriceTrendSeries]
+    total_points: int
+    note: str

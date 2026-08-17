@@ -35,6 +35,7 @@
         .price-card .price { font-size: 28px; font-weight: 700; color: #667eea; margin: 8px 0; }
         .price-card .meta { font-size: 12px; color: #999; }
         #chart { width: 100%; height: 400px; }
+        #aiPriceChart { width: 100%; height: 380px; }
         .route-select { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
         .empty { text-align: center; color: #999; padding: 40px; }
         .ai-card { border: 1px solid #e5e8ff; }
@@ -69,6 +70,12 @@
             </div>
             <div class="hint">请尽量包含出发地、目的地、日期、单程/往返、人数和舱位。结果是网页参考价，不代表实时库存。</div>
             <div id="aiResults"></div>
+        </div>
+
+        <div class="card">
+            <h2>AI 搜索价格走势</h2>
+            <div class="hint" id="aiTrendNote">折线展示每次联网搜索中可确认报价的最低值。</div>
+            <div id="aiPriceChart"></div>
         </div>
 
         <!-- 添加航线 -->
@@ -115,6 +122,7 @@
     <script>
         let routes = [];
         let chart = echarts.init(document.getElementById('chart'));
+        let aiPriceChart = echarts.init(document.getElementById('aiPriceChart'));
 
         async function api(path, opts) {
             const resp = await fetch(path, opts);
@@ -146,6 +154,7 @@
                     <div class="offer-evidence">${escapeHtml(data.summary)}</div>
                     ${offers.length ? `<div class="offer-list">${offers.map(renderOffer).join('')}</div>` : '<div class="empty">没有找到可确认的公开价格，请补充日期或换一个描述重试。</div>'}
                     <div class="warning">${escapeHtml(data.warning)}</div>`;
+                if (offers.length) loadAiPriceTrend(offers[0].departure, offers[0].arrival);
             } catch (error) {
                 results.innerHTML = `<div class="warning">${escapeHtml(error.message)}</div>`;
             } finally {
@@ -164,6 +173,46 @@
                 </div>
                 <div class="offer-price">${price}</div>
             </div>`;
+        }
+
+        async function loadAiPriceTrend(departure = '', arrival = '') {
+            const params = new URLSearchParams({limit: '100'});
+            if (departure) params.set('departure', departure);
+            if (arrival) params.set('arrival', arrival);
+            try {
+                const data = await api(`/api/ai/price-trends?${params}`);
+                document.getElementById('aiTrendNote').textContent = `${data.note} 当前观测点：${data.total_points}`;
+                if (!data.series.length) {
+                    aiPriceChart.clear();
+                    aiPriceChart.setOption({title: {text: '暂无 AI 价格历史', subtext: '完成联网查询后将在这里形成趋势', left: 'center', top: 'center'}});
+                    return;
+                }
+                const timestamps = [...new Set(data.series.flatMap(s => s.points.map(p => p.searched_at)))].sort();
+                aiPriceChart.setOption({
+                    title: {text: departure && arrival ? `${departure} → ${arrival}` : 'AI 搜索最低参考价', left: 'center'},
+                    tooltip: {trigger: 'axis'},
+                    legend: {top: 30, type: 'scroll'},
+                    grid: {left: 70, right: 30, bottom: 60, top: 75},
+                    xAxis: {type: 'category', data: timestamps.map(t => new Date(t).toLocaleString()), axisLabel: {rotate: 25}},
+                    yAxis: {type: 'value', name: '参考价', scale: true},
+                    series: data.series.map(s => {
+                        const values = new Map(s.points.map(p => [p.searched_at, p.min_price]));
+                        return {
+                            name: `${s.departure} → ${s.arrival} (${s.currency})`,
+                            type: 'line',
+                            data: timestamps.map(t => values.has(t) ? values.get(t) : null),
+                            connectNulls: false,
+                            smooth: false,
+                            symbol: 'circle',
+                            symbolSize: 7,
+                            lineStyle: {width: 2},
+                            emphasis: {focus: 'series'}
+                        };
+                    })
+                }, true);
+            } catch (error) {
+                document.getElementById('aiTrendNote').textContent = `价格趋势加载失败：${error.message}`;
+            }
         }
 
         async function loadRoutes() {
@@ -250,7 +299,8 @@
             });
         }
 
-        window.addEventListener('resize', () => chart.resize());
+        window.addEventListener('resize', () => { chart.resize(); aiPriceChart.resize(); });
+        loadAiPriceTrend();
         loadRoutes();
     </script>
 </body>
