@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     API_KEY: str = ""  # AviationStack or Amadeus API key
     API_SECRET: str = ""  # Amadeus API secret
     API_SOURCE: str = "aviationstack"  # aviationstack | amadeus
-    SCRAPE_INTERVAL_HOURS: int = 12
+    SCRAPE_INTERVAL_HOURS: int = 24
 
     # AI 联网搜索。Tavily 负责检索网页，LLM 负责规划检索并整理结构化结果。
     TAVILY_API_KEY: str = ""
