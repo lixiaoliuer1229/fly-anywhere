@@ -11,6 +11,9 @@
         .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 24px 32px; }
         .header h1 { font-size: 24px; font-weight: 600; }
         .header p { opacity: 0.85; margin-top: 4px; font-size: 14px; }
+        .header-inner { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+        .header-link { color: white; text-decoration: none; border: 1px solid rgba(255,255,255,.45); border-radius: 8px; padding: 8px 14px; font-size: 13px; white-space: nowrap; }
+        .header-link:hover { background: rgba(255,255,255,.12); }
         .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
         .card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 24px; margin-bottom: 20px; }
         .card h2 { font-size: 16px; color: #666; margin-bottom: 16px; }
@@ -58,8 +61,13 @@
 </head>
 <body>
     <div class="header">
-        <h1>AI 机票搜索</h1>
-        <p>LangChain 调度 Tavily 联网检索，帮你发现公开网页中的机票参考价</p>
+        <div class="header-inner">
+            <div>
+                <h1>AI 机票搜索</h1>
+                <p>LangChain 调度 Tavily 联网检索，帮你发现公开网页中的机票参考价</p>
+            </div>
+            <a class="header-link" href="/dashboard">查看数据看板 →</a>
+        </div>
     </div>
     <div class="container">
         <div class="card ai-card">

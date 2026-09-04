@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>航班数据看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+    <style>
+        :root { --ink:#172033; --muted:#6f788b; --line:#e7eaf0; --brand:#5367e8; --brand-soft:#eef0ff; --green:#0b9b72; --red:#dc5864; }
+        * { box-sizing: border-box; }
+        body { margin:0; color:var(--ink); background:#f4f6fa; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+        header { color:#fff; background:linear-gradient(120deg,#1d2850,#5367e8); padding:28px 32px 76px; }
+        .head,.main { max-width:1240px; margin:auto; }
+        .head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+        h1 { margin:0; font-size:26px; letter-spacing:.2px; }
+        .subtitle { margin:7px 0 0; color:rgba(255,255,255,.72); font-size:14px; }
+        .back { color:#fff; text-decoration:none; border:1px solid rgba(255,255,255,.35); border-radius:9px; padding:9px 14px; font-size:13px; }
+        .main { margin-top:-48px; padding:0 24px 40px; }
+        .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+        .metric,.panel { background:#fff; border:1px solid rgba(19,33,68,.06); border-radius:14px; box-shadow:0 8px 24px rgba(25,40,85,.07); }
+        .metric { padding:19px 20px; }
+        .metric-label { color:var(--muted); font-size:13px; }
+        .metric-value { margin-top:8px; font-size:27px; font-weight:750; }
+        .metric-note { margin-top:5px; color:#939aaa; font-size:12px; }
+        .grid { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(300px,.85fr); gap:16px; margin-top:16px; }
+        .panel { padding:20px; min-width:0; }
+        .panel-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+        .panel h2 { margin:0; font-size:16px; }
+        .panel-note { color:var(--muted); font-size:12px; }
+        #trendChart { width:100%; height:360px; }
+        .latest-list { display:grid; gap:10px; }
+        .latest { padding:14px; border:1px solid var(--line); border-radius:10px; background:#fbfcff; }
+        .latest-top { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+        .route { font-weight:700; }
+        .price { color:var(--brand); font-size:19px; font-weight:750; }
+        .meta { color:var(--muted); font-size:12px; margin-top:7px; }
+        .table-wrap { overflow:auto; }
+        table { width:100%; border-collapse:collapse; font-size:13px; }
+        th { color:var(--muted); text-align:left; font-weight:600; background:#fafbfc; }
+        th,td { padding:12px 14px; border-bottom:1px solid var(--line); white-space:nowrap; }
+        .status { display:inline-flex; align-items:center; gap:6px; color:var(--green); }
+        .status::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; }
+        .status.off { color:var(--muted); }
+        .empty { color:var(--muted); text-align:center; padding:56px 16px; font-size:13px; }
+        .error { color:var(--red); background:#fff2f3; border-radius:9px; padding:12px; font-size:13px; }
+        .refresh { border:0; background:var(--brand-soft); color:var(--brand); padding:7px 11px; border-radius:8px; cursor:pointer; }
+        @media (max-width:900px) { .metrics{grid-template-columns:repeat(2,1fr)} .grid{grid-template-columns:1fr} }
+        @media (max-width:560px) { header{padding:22px 18px 70px}.main{padding:0 14px 28px}.metrics{grid-template-columns:1fr 1fr;gap:10px}.metric{padding:15px}.metric-value{font-size:22px}.subtitle{display:none}.back{padding:8px 10px} }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="head">
+            <div><h1>航班数据看板</h1><p class="subtitle">监控航线、最新价格与 AI 搜索报价的集中概览</p></div>
+            <a class="back" href="/">← 返回搜索</a>
+        </div>
+    </header>
+    <main class="main">
+        <section class="metrics" aria-label="关键指标">
+            <div class="metric"><div class="metric-label">监控航线</div><div class="metric-value" id="routeCount">—</div><div class="metric-note" id="routeNote">正在加载</div></div>
+            <div class="metric"><div class="metric-label">已有最新报价</div><div class="metric-value" id="pricedCount">—</div><div class="metric-note">固定航线抓取结果</div></div>
+            <div class="metric"><div class="metric-label">AI 价格观测点</div><div class="metric-value" id="pointCount">—</div><div class="metric-note">最近 500 个聚合点</div></div>
+            <div class="metric"><div class="metric-label">最低监控价</div><div class="metric-value" id="lowestPrice">—</div><div class="metric-note" id="lowestRoute">暂无报价</div></div>
+        </section>
+
+        <section class="grid">
+            <div class="panel">
+                <div class="panel-head"><div><h2>AI 搜索价格趋势</h2><div class="panel-note" id="trendNote">每次搜索的最低可确认报价</div></div><button class="refresh" onclick="loadDashboard()">刷新</button></div>
+                <div id="trendChart"></div>
+            </div>
+            <div class="panel">
+                <div class="panel-head"><h2>最新监控价格</h2><span class="panel-note" id="updatedAt"></span></div>
+                <div class="latest-list" id="latestList"><div class="empty">正在加载…</div></div>
+            </div>
+        </section>
+
+        <section class="panel" style="margin-top:16px">
+            <div class="panel-head"><h2>监控航线</h2><span class="panel-note">配置详情</span></div>
+            <div class="table-wrap"><table><thead><tr><th>航线</th><th>航空公司</th><th>日期</th><th>行程</th><th>舱位</th><th>目标价</th><th>状态</th></tr></thead><tbody id="routeRows"></tbody></table></div>
+        </section>
+    </main>
+    <script>
+        const chart = echarts.init(document.getElementById('trendChart'));
+        const fmtMoney = (value, currency='CNY') => value == null ? '—' : new Intl.NumberFormat('zh-CN',{style:'currency',currency,maximumFractionDigits:0}).format(value);
+        const fmtDate = value => value ? new Date(value).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+        const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        async function getJson(url) { const r=await fetch(url); const d=await r.json(); if(!r.ok) throw new Error(d.detail||`请求失败 (${r.status})`); return d; }
+
+        function renderChart(data) {
+            document.getElementById('pointCount').textContent=data.total_points;
+            document.getElementById('trendNote').textContent=data.note;
+            if(!data.series.length){ chart.clear(); chart.setOption({title:{text:'暂无 AI 报价历史',subtext:'在搜索页完成查询后，这里会显示趋势',left:'center',top:'center',textStyle:{fontSize:15},subtextStyle:{color:'#8a91a2'}}}); return; }
+            const times=[...new Set(data.series.flatMap(s=>s.points.map(p=>p.searched_at)))].sort();
+            chart.setOption({color:['#5367e8','#0b9b72','#ed9b40','#9b62d4','#dc5864'],tooltip:{trigger:'axis'},legend:{type:'scroll',top:4,textStyle:{fontSize:11}},grid:{left:62,right:22,top:54,bottom:54},xAxis:{type:'category',data:times.map(fmtDate),axisLabel:{rotate:24,color:'#7b8394'},axisLine:{lineStyle:{color:'#dde1ea'}}},yAxis:{type:'value',scale:true,name:'价格',splitLine:{lineStyle:{color:'#edf0f5'}},axisLabel:{color:'#7b8394'}},series:data.series.map(s=>{const m=new Map(s.points.map(p=>[p.searched_at,p.min_price]));return{name:`${s.departure} → ${s.arrival} (${s.currency})`,type:'line',smooth:.25,symbolSize:6,data:times.map(t=>m.has(t)?m.get(t):null),connectNulls:false,lineStyle:{width:2},areaStyle:{opacity:.05}}})},true);
+        }
+
+        function renderRoutes(routes){
+            document.getElementById('routeCount').textContent=routes.length;
+            const enabled=routes.filter(r=>r.enabled).length;
+            document.getElementById('routeNote').textContent=`${enabled} 条正在监控`;
+            document.getElementById('routeRows').innerHTML=routes.length?routes.map(r=>`<tr><td><strong>${esc(r.departure_city)} → ${esc(r.arrival_city)}</strong></td><td>${esc(r.airline||'不限')}</td><td>${esc(r.departure_date||'未指定')}</td><td>${r.trip_type==='round_trip'?'往返':'单程'} · ${r.adults} 人</td><td>${esc(r.cabin_class)}</td><td>${fmtMoney(r.target_price,r.currency)}</td><td><span class="status ${r.enabled?'':'off'}">${r.enabled?'监控中':'已暂停'}</span></td></tr>`).join(''):'<tr><td colspan="7" class="empty">暂无监控航线，请先在搜索页添加</td></tr>';
+        }
+
+        function renderPrices(prices){
+            document.getElementById('pricedCount').textContent=prices.length;
+            const lowest=prices.reduce((a,b)=>!a||b.price<a.price?b:a,null);
+            document.getElementById('lowestPrice').textContent=lowest?fmtMoney(lowest.price):'—';
+            document.getElementById('lowestRoute').textContent=lowest?`${lowest.departure} → ${lowest.arrival}`:'暂无报价';
+            document.getElementById('latestList').innerHTML=prices.length?prices.slice(0,8).map(p=>`<article class="latest"><div class="latest-top"><span class="route">${esc(p.departure)} → ${esc(p.arrival)}</span><span class="price">${fmtMoney(p.price)}</span></div><div class="meta">${esc(p.airline||'航空公司不限')} · ${esc(p.cabin_class)} · ${fmtDate(p.scraped_at)}</div></article>`).join(''):'<div class="empty">暂无价格数据</div>';
+        }
+
+        async function loadDashboard(){
+            document.getElementById('updatedAt').textContent='更新中…';
+            try { const [routes,prices,trends]=await Promise.all([getJson('/api/routes/'),getJson('/api/prices/latest'),getJson('/api/ai/price-trends?limit=500')]); renderRoutes(routes);renderPrices(prices);renderChart(trends);document.getElementById('updatedAt').textContent=`更新于 ${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`; }
+            catch(e){ document.getElementById('latestList').innerHTML=`<div class="error">数据加载失败：${esc(e.message)}</div>`;document.getElementById('updatedAt').textContent='加载失败'; }
+        }
+        window.addEventListener('resize',()=>chart.resize());
+        loadDashboard();
+    </script>
+</body>
+</html>
