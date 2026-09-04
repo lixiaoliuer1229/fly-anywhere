@@ -17,6 +17,30 @@
 
 ## 快速开始
 
+### Docker 部署（推荐）
+
+服务器需要 Docker 与 Docker Compose。复制环境变量文件并填写真实密钥：
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+docker compose ps
+curl http://127.0.0.1:18000/healthz
+```
+
+Compose 会启动应用和 MySQL 8.4，数据库数据保存在命名卷中；应用每次启动前会自动执行 Alembic 迁移。默认仅绑定服务器的 `127.0.0.1:18000`，不会直接暴露到公网。需要公网访问时，应通过已有 Nginx/Caddy 配置域名、HTTPS 和反向代理，而不是直接开放应用端口。
+
+常用维护命令：
+
+```bash
+docker compose logs -f app
+docker compose restart app
+docker compose pull
+docker compose up -d --build
+```
+
+`.env` 不会进入 Docker 镜像，也已被 Git 忽略。生产环境必须使用独立强密码，并限制该文件权限（例如 `chmod 600 .env`）。
+
 ### 1. 安装依赖
 
 ```bash
@@ -74,6 +98,11 @@ uvicorn app.main:app --reload
 AI 会搜索公开网页并展示可追溯的参考结果。输入越完整，结果越有意义。页面下方仍可使用原有航线监控与价格趋势功能。
 
 每次 AI 查询都会记录到 `search_runs`，可确认的结构化结果记录到 `flight_offers`；未来的群消息投递状态由 `notification_deliveries` 保存。数据库结构统一通过 Alembic 迁移管理。
+
+## 后续路线
+
+- 机票数据源按 `SerpApi Google Flights → Amadeus Flight Offers → Tavily` 的优先级接入，并在主数据源额度耗尽或请求失败时自动降级。
+- 微信公众号消息推送暂不在当前版本实现。后续将评估公众号类型与认证状态、用户关注与 OpenID 获取方式、模板消息/订阅通知权限、每日定时任务以及投递记录；微信接口限制最终以公众号后台当时开放的能力为准。
 
 ## API 接口
 
