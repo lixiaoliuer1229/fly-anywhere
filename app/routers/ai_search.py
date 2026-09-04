@@ -103,6 +103,7 @@ async def search_flights(data: FlightSearchRequest, db: Session = Depends(get_db
     try:
         result = await search_flight_prices(data.query)
         run.status = "completed"
+        run.provider = result.provider
         run.summary = result.summary
         run.warning = result.warning
         run.completed_at = datetime.now()

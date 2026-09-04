@@ -6,7 +6,8 @@
 
 ## 功能
 
-- 使用自然语言描述行程，由 LangChain Agent 规划并执行 Tavily 联网搜索
+- 使用自然语言描述行程，由 LangChain 提取结构化条件并查询机票价格
+- 数据源自动降级顺序：SerpApi Google Flights → Amadeus Flight Offers → Tavily
 - 将网页信息整理为航班、价格、币种、时间和来源链接等结构化数据
 - 对无法被来源确认的价格不做猜测，并在页面显示风险提示
 - 支持指定固定航线，定时抓取价格（原有功能）
@@ -101,7 +102,8 @@ AI 会搜索公开网页并展示可追溯的参考结果。输入越完整，�
 
 ## 后续路线
 
-- 机票数据源按 `SerpApi Google Flights → Amadeus Flight Offers → Tavily` 的优先级接入，并在主数据源额度耗尽或请求失败时自动降级。
+- 机票数据源已按 `SerpApi Google Flights → Amadeus Flight Offers → Tavily` 的优先级接入，并在密钥未配置、额度耗尽、请求失败或无结果时自动降级。SerpApi 和 Amadeus 密钥需要分别在 `.env` 中配置。
+- Amadeus 官方已提示 Self-Service 门户停止面向新用户提供；本项目仍保留 Flight Offers 适配器，供已有有效凭据的账号使用。若没有存量 Amadeus 凭据，该层会被跳过。
 - 微信公众号消息推送暂不在当前版本实现。后续将评估公众号类型与认证状态、用户关注与 OpenID 获取方式、模板消息/订阅通知权限、每日定时任务以及投递记录；微信接口限制最终以公众号后台当时开放的能力为准。
 
 ## API 接口
@@ -114,7 +116,7 @@ AI 会搜索公开网页并展示可追溯的参考结果。输入越完整，�
 | GET | `/api/prices/latest` | 最新价格 |
 | GET | `/api/prices/{route_id}` | 价格历史 |
 | POST | `/api/prices/fetch/{route_id}` | 手动触发抓取 |
-| POST | `/api/ai/search` | LangChain + Tavily 自然语言机票搜索 |
+| POST | `/api/ai/search` | LangChain 自然语言机票搜索与多数据源自动降级 |
 
 ## 技术栈
 

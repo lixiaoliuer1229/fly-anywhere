@@ -66,6 +66,21 @@ class FlightSearchRequest(BaseModel):
         return " ".join(value.split())
 
 
+class FlightSearchCriteria(BaseModel):
+    departure_iata: str = Field(min_length=3, max_length=3)
+    arrival_iata: str = Field(min_length=3, max_length=3)
+    departure_date: date
+    return_date: date | None = None
+    adults: int = Field(default=1, ge=1, le=9)
+    cabin_class: str = "economy"
+    currency: str = Field(default="CNY", min_length=3, max_length=3)
+
+    @field_validator("departure_iata", "arrival_iata", "currency")
+    @classmethod
+    def uppercase_code(cls, value: str) -> str:
+        return value.upper()
+
+
 class FlightOffer(BaseModel):
     airline: str = "未知"
     flight_number: str | None = None
@@ -86,6 +101,7 @@ class FlightSearchResult(BaseModel):
     offers: list[FlightOffer] = Field(default_factory=list)
     searched_at: datetime = Field(default_factory=datetime.now)
     warning: str = "网页搜索参考价，可能含缓存或起售价；实际价格和余票以预订页面为准。"
+    provider: str = "tavily"
 
 
 class PriceTrendPoint(BaseModel):

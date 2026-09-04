@@ -1,13 +1,19 @@
 import asyncio
 from datetime import datetime
 
+import httpx
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain_openai import ChatOpenAI
 from langchain_tavily import TavilySearch
 
 from app.config import settings
-from app.schemas import FlightSearchResult
+from app.schemas import FlightSearchCriteria, FlightSearchResult
+from app.services.structured_flight_sources import (
+    AmadeusFlightOffersSource,
+    FlightSourceError,
+    SerpApiGoogleFlightsSource,
+)
 
 
 SYSTEM_PROMPT = """你是一个谨慎的机票价格搜索助手。今天是 {today}。
@@ -76,8 +82,70 @@ def _build_agent():
     )
 
 
+def _build_model():
+    if settings.AI_PROVIDER == "anthropic":
+        if not settings.ANTHROPIC_API_KEY:
+            raise RuntimeError("未配置 ANTHROPIC_API_KEY")
+        from langchain_anthropic import ChatAnthropic
+
+        kwargs = {
+            "model": settings.ANTHROPIC_MODEL or settings.AI_MODEL,
+            "api_key": settings.ANTHROPIC_API_KEY,
+            "temperature": 0,
+        }
+        if settings.ANTHROPIC_BASE_URL:
+            kwargs["base_url"] = settings.ANTHROPIC_BASE_URL
+        return ChatAnthropic(**kwargs)
+
+    if not settings.OPENAI_API_KEY:
+        raise RuntimeError("未配置 OPENAI_API_KEY")
+    kwargs = {"model": settings.AI_MODEL, "api_key": settings.OPENAI_API_KEY, "temperature": 0}
+    if settings.OPENAI_BASE_URL:
+        kwargs["base_url"] = settings.OPENAI_BASE_URL
+    if "api.deepseek.com" in (settings.OPENAI_BASE_URL or ""):
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+    return ChatOpenAI(**kwargs)
+
+
+async def _parse_criteria(query: str) -> FlightSearchCriteria:
+    agent = create_agent(
+        model=_build_model(),
+        tools=[],
+        response_format=ToolStrategy(FlightSearchCriteria),
+        system_prompt=(
+            f"今天是 {datetime.now().date().isoformat()}。从用户机票需求提取结构化条件。"
+            "城市必须转换为最合适的三字 IATA 机场代码；舱位只用 economy、premium_economy、business 或 first。"
+            "日期或出发到达信息缺失时不要猜测，应让结构化输出失败。"
+        ),
+    )
+    state = await asyncio.wait_for(
+        agent.ainvoke({"messages": [{"role": "user", "content": query}]}),
+        timeout=60,
+    )
+    return FlightSearchCriteria.model_validate(state.get("structured_response"))
+
+
 async def search_flight_prices(query: str) -> FlightSearchResult:
-    """让 LangChain Agent 联网搜索并返回可直接展示的结构化参考价。"""
+    """按 SerpApi、Amadeus、Tavily 的顺序查询并自动降级。"""
+    failures: list[str] = []
+    if settings.SERPAPI_API_KEY or (settings.AMADEUS_API_KEY and settings.AMADEUS_API_SECRET):
+        try:
+            criteria = await _parse_criteria(query)
+        except Exception as exc:
+            failures.append(f"结构化行程解析失败：{exc}")
+        else:
+            sources = []
+            if settings.SERPAPI_API_KEY:
+                sources.append(SerpApiGoogleFlightsSource())
+            if settings.AMADEUS_API_KEY and settings.AMADEUS_API_SECRET:
+                sources.append(AmadeusFlightOffersSource())
+            for source in sources:
+                try:
+                    return await source.search(criteria)
+                except (FlightSourceError, httpx.HTTPError) as exc:
+                    failures.append(f"{source.name}: {exc}")
+
+    # 未配置、额度耗尽、请求失败或无结果时，回退到现有 Tavily Agent。
     agent = _build_agent()
     state = await asyncio.wait_for(
         agent.ainvoke(
@@ -91,4 +159,7 @@ async def search_flight_prices(query: str) -> FlightSearchResult:
         result = FlightSearchResult.model_validate(result)
 
     # 时间由服务端生成，避免模型给出不准确的检索时间。
-    return result.model_copy(update={"searched_at": datetime.now()})
+    warning = result.warning
+    if failures:
+        warning = f"已自动降级到 Tavily（{'；'.join(failures)}）。{warning}"
+    return result.model_copy(update={"searched_at": datetime.now(), "warning": warning, "provider": "tavily"})

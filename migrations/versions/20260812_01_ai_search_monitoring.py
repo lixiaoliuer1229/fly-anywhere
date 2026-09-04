@@ -1,13 +1,13 @@
 """Add AI search monitoring tables and route criteria.
 
 Revision ID: 20260812_01
-Revises:
+Revises: 20260811_00
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "20260812_01"
-down_revision = None
+down_revision = "20260811_00"
 branch_labels = None
 depends_on = None
 
