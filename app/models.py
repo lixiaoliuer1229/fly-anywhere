@@ -68,7 +68,7 @@ class FlightOffer(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     search_run_id = Column(Integer, ForeignKey("search_runs.id", ondelete="CASCADE"), nullable=False, index=True)
     airline = Column(String(100), nullable=False, default="未知")
-    flight_number = Column(String(30), nullable=True)
+    flight_number = Column(String(120), nullable=True)
     departure = Column(String(100), nullable=False)
     arrival = Column(String(100), nullable=False)
     departure_time = Column(String(80), nullable=True)

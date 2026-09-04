@@ -145,7 +145,11 @@ async def search_flight_prices(query: str) -> FlightSearchResult:
                 except (FlightSourceError, httpx.HTTPError) as exc:
                     failures.append(f"{source.name}: {exc}")
 
-    # 未配置、额度耗尽、请求失败或无结果时，回退到现有 Tavily Agent。
+    return await _search_with_tavily(query, failures)
+
+
+async def _search_with_tavily(query: str, failures: list[str] | None = None) -> FlightSearchResult:
+    """Run only the Tavily fallback; never retry structured providers here."""
     agent = _build_agent()
     state = await asyncio.wait_for(
         agent.ainvoke(
@@ -163,3 +167,27 @@ async def search_flight_prices(query: str) -> FlightSearchResult:
     if failures:
         warning = f"已自动降级到 Tavily（{'；'.join(failures)}）。{warning}"
     return result.model_copy(update={"searched_at": datetime.now(), "warning": warning, "provider": "tavily"})
+
+
+async def search_flight_prices_by_criteria(criteria: FlightSearchCriteria) -> FlightSearchResult:
+    """Search a known itinerary without spending an LLM call parsing it again."""
+    failures: list[str] = []
+    sources = []
+    if settings.SERPAPI_API_KEY:
+        sources.append(SerpApiGoogleFlightsSource())
+    if settings.AMADEUS_API_KEY and settings.AMADEUS_API_SECRET:
+        sources.append(AmadeusFlightOffersSource())
+
+    for source in sources:
+        try:
+            return await source.search(criteria)
+        except (FlightSourceError, httpx.HTTPError) as exc:
+            failures.append(f"{source.name}: {exc}")
+
+    query = (
+        f"{criteria.departure_date.isoformat()} 从 {criteria.departure_iata} 到 "
+        f"{criteria.arrival_iata}，"
+        f"{criteria.return_date.isoformat() + ' 返回，' if criteria.return_date else '单程，'}"
+        f"{criteria.adults} 名成人，{criteria.cabin_class}，{criteria.currency}"
+    )
+    return await _search_with_tavily(query, failures)

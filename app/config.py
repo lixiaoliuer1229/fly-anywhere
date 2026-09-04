@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # AI 联网搜索。Tavily 负责检索网页，LLM 负责规划检索并整理结构化结果。
     TAVILY_API_KEY: str = ""
     SERPAPI_API_KEY: str = ""
+    RAPIDAPI_KEY: str = ""
     AMADEUS_API_KEY: str = ""
     AMADEUS_API_SECRET: str = ""
     AMADEUS_BASE_URL: str = "https://test.api.amadeus.com"

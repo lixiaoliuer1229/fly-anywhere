@@ -1,36 +1,91 @@
 import threading
 import time
+from datetime import datetime
+from decimal import Decimal
 
 import schedule
 
 from app.database import SessionLocal
-from app.models import Route
-from app.services.api_source import AviationStackSource
-from app.services.price_service import fetch_and_store_prices
+from app.models import FlightOffer as FlightOfferRecord, Route, SearchRun
+from app.schemas import FlightSearchCriteria
+from app.services.flight_search_agent import search_flight_prices_by_criteria
 from app.config import settings
 
 
 def run_price_fetch():
-    """Fetch prices for all routes."""
+    """Fetch and persist prices for enabled, fully specified monitored routes."""
     db = SessionLocal()
     try:
-        routes = db.query(Route).all()
+        routes = db.query(Route).filter(Route.enabled.is_(True)).all()
         if not routes:
             print("No routes configured, skipping fetch.")
             return
 
-        source = AviationStackSource(api_key=settings.API_KEY) if settings.API_KEY else None
-        if not source:
-            print("No API key configured, skipping fetch.")
-            return
-
         import asyncio
         for route in routes:
+            if not route.departure_date or not route.return_date:
+                print(f"Skipping route {route.id}: departure/return dates are required")
+                continue
+            query = (
+                f"{route.departure_city}->{route.arrival_city} "
+                f"{route.departure_date.isoformat()}~{route.return_date.isoformat()}"
+            )
+            run = SearchRun(
+                route_id=route.id,
+                original_query=query,
+                status="running",
+                provider="scheduled",
+                model=settings.AI_MODEL,
+                started_at=datetime.now(),
+            )
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            run_id = run.id
             try:
-                asyncio.run(fetch_and_store_prices(db, route, source))
-                print(f"Fetched prices for {route.departure_city} -> {route.arrival_city}")
+                criteria = FlightSearchCriteria(
+                    departure_iata=route.departure_city,
+                    arrival_iata=route.arrival_city,
+                    departure_date=route.departure_date,
+                    return_date=route.return_date,
+                    adults=route.adults,
+                    cabin_class=route.cabin_class,
+                    currency=route.currency,
+                )
+                result = asyncio.run(search_flight_prices_by_criteria(criteria))
+                run.status = "completed"
+                run.provider = result.provider
+                run.summary = result.summary
+                run.warning = result.warning
+                run.completed_at = datetime.now()
+                for offer in result.offers:
+                    db.add(FlightOfferRecord(
+                        search_run_id=run.id,
+                        airline=offer.airline,
+                        flight_number=offer.flight_number,
+                        departure=offer.departure,
+                        arrival=offer.arrival,
+                        departure_time=offer.departure_time,
+                        arrival_time=offer.arrival_time,
+                        price=Decimal(str(offer.price)) if offer.price is not None else None,
+                        currency=offer.currency.upper(),
+                        cabin_class=offer.cabin_class,
+                        source_title=offer.source_title,
+                        source_url=str(offer.source_url),
+                        evidence=offer.evidence,
+                        is_starting_price="起" in offer.evidence,
+                        created_at=datetime.now(),
+                    ))
+                db.commit()
+                print(f"Fetched {len(result.offers)} offers for {query} via {result.provider}")
             except Exception as e:
-                print(f"Error fetching {route.departure_city}->{route.arrival_city}: {e}")
+                db.rollback()
+                run = db.get(SearchRun, run_id)
+                run.status = "failed"
+                run.error_message = str(e)[:4000]
+                run.completed_at = datetime.now()
+                db.commit()
+                print(f"Error fetching {query}: {e}")
     finally:
         db.close()
 
