@@ -85,7 +85,7 @@
 
         <section class="panel" style="margin-top:16px">
             <div class="panel-head"><h2>监控航线</h2><span class="panel-note">配置详情</span></div>
-            <div class="table-wrap"><table><thead><tr><th>航线</th><th>航空公司</th><th>日期</th><th>行程</th><th>舱位</th><th>目标价</th><th>状态</th></tr></thead><tbody id="routeRows"></tbody></table></div>
+            <div class="table-wrap"><table><thead><tr><th>航线</th><th>航空公司</th><th>往返日期</th><th>行程</th><th>舱位</th><th>目标价</th><th>状态</th></tr></thead><tbody id="routeRows"></tbody></table></div>
         </section>
     </main>
     <script>
@@ -103,10 +103,16 @@
         const airportLabel = value => { const code=String(value??'').toUpperCase(); return airportNames[code]?`${airportNames[code]}（${code}）`:value; };
         const fmtMoney = (value, currency='CNY') => value == null ? '—' : new Intl.NumberFormat('zh-CN',{style:'currency',currency,maximumFractionDigits:0}).format(value);
         const fmtDate = value => value ? new Date(value).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+        const fmtTravelDate = value => value ? new Date(`${value}T00:00:00`).toLocaleDateString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit'}) : '';
+        const tripDates = route => {
+            if(!route?.departure_date) return '日期未指定';
+            const departure=fmtTravelDate(route.departure_date);
+            return route.trip_type==='round_trip'&&route.return_date ? `去程 ${departure} → 返程 ${fmtTravelDate(route.return_date)}` : `去程 ${departure}`;
+        };
         const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         async function getJson(url) { const r=await fetch(url); const d=await r.json(); if(!r.ok) throw new Error(d.detail||`请求失败 (${r.status})`); return d; }
 
-        function renderChart(data) {
+        function renderChart(data,routes) {
             document.getElementById('pointCount').textContent=data.total_points;
             document.getElementById('trendNote').textContent=data.note;
             trendCharts.forEach(item=>item.dispose());
@@ -119,7 +125,8 @@
                 const change=first==null||latest==null?null:latest-first;
                 const changeClass=change>0?'up':change<0?'down':'';
                 const changeText=change==null?'暂无变化':change===0?'持平':`${change>0?'上涨':'下降'} ${fmtMoney(Math.abs(change),series.currency)}`;
-                return `<article class="trend-card"><div class="trend-title">${esc(airportLabel(series.departure))} → ${esc(airportLabel(series.arrival))}</div><div class="trend-meta">${esc(series.currency)} · ${series.points.length} 个价格观测点</div><div class="trend-summary"><span class="trend-price">${fmtMoney(latest,series.currency)}</span><span class="trend-change ${changeClass}">${changeText}</span></div><div class="trend-chart" id="routeTrend${index}"></div></article>`;
+                const route=routes.find(item=>item.departure_city.toUpperCase()===series.departure.toUpperCase()&&item.arrival_city.toUpperCase()===series.arrival.toUpperCase());
+                return `<article class="trend-card"><div class="trend-title">${esc(airportLabel(series.departure))} → ${esc(airportLabel(series.arrival))}</div><div class="trend-meta">${esc(tripDates(route))} · ${esc(series.currency)} · ${series.points.length} 个价格观测点</div><div class="trend-summary"><span class="trend-price">${fmtMoney(latest,series.currency)}</span><span class="trend-change ${changeClass}">${changeText}</span></div><div class="trend-chart" id="routeTrend${index}"></div></article>`;
             }).join('');
             data.series.forEach((series,index)=>{
                 const routeChart=echarts.init(document.getElementById(`routeTrend${index}`));
@@ -136,7 +143,7 @@
             document.getElementById('routeCount').textContent=routes.length;
             const enabled=routes.filter(r=>r.enabled).length;
             document.getElementById('routeNote').textContent=`${enabled} 条正在监控`;
-            document.getElementById('routeRows').innerHTML=routes.length?routes.map(r=>`<tr><td><strong>${esc(airportLabel(r.departure_city))} → ${esc(airportLabel(r.arrival_city))}</strong></td><td>${esc(r.airline||'不限')}</td><td>${esc(r.departure_date||'未指定')}</td><td>${r.trip_type==='round_trip'?'往返':'单程'} · ${r.adults} 人</td><td>${esc(r.cabin_class)}</td><td>${fmtMoney(r.target_price,r.currency)}</td><td><span class="status ${r.enabled?'':'off'}">${r.enabled?'监控中':'已暂停'}</span></td></tr>`).join(''):'<tr><td colspan="7" class="empty">暂无监控航线，请先在搜索页添加</td></tr>';
+            document.getElementById('routeRows').innerHTML=routes.length?routes.map(r=>`<tr><td><strong>${esc(airportLabel(r.departure_city))} → ${esc(airportLabel(r.arrival_city))}</strong></td><td>${esc(r.airline||'不限')}</td><td>${esc(tripDates(r))}</td><td>${r.trip_type==='round_trip'?'往返':'单程'} · ${r.adults} 人</td><td>${esc(r.cabin_class)}</td><td>${fmtMoney(r.target_price,r.currency)}</td><td><span class="status ${r.enabled?'':'off'}">${r.enabled?'监控中':'已暂停'}</span></td></tr>`).join(''):'<tr><td colspan="7" class="empty">暂无监控航线，请先在搜索页添加</td></tr>';
         }
 
         function renderPrices(prices){
@@ -149,7 +156,7 @@
 
         async function loadDashboard(){
             document.getElementById('updatedAt').textContent='更新中…';
-            try { const [routes,prices,trends]=await Promise.all([getJson('/api/routes/'),getJson('/api/prices/latest'),getJson('/api/ai/price-trends?limit=500')]); renderRoutes(routes);renderPrices(prices);renderChart(trends);document.getElementById('updatedAt').textContent=`更新于 ${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`; }
+            try { const [routes,prices,trends]=await Promise.all([getJson('/api/routes/'),getJson('/api/prices/latest'),getJson('/api/ai/price-trends?limit=500')]); renderRoutes(routes);renderPrices(prices);renderChart(trends,routes);document.getElementById('updatedAt').textContent=`更新于 ${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`; }
             catch(e){ document.getElementById('latestList').innerHTML=`<div class="error">数据加载失败：${esc(e.message)}</div>`;document.getElementById('updatedAt').textContent='加载失败'; }
         }
         window.addEventListener('resize',()=>trendCharts.forEach(item=>item.resize()));

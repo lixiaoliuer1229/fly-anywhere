@@ -30,6 +30,7 @@
         .btn-sm { padding: 4px 12px; font-size: 12px; }
         .route-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
         .route-tag { background: #f0f2f5; padding: 8px 14px; border-radius: 8px; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+        .route-tag small { color: #7d8492; font-size: 11px; line-height: 1.8; }
         .route-tag .delete { cursor: pointer; color: #999; font-size: 16px; }
         .route-tag .delete:hover { color: #ff4757; }
         .price-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-top: 16px; }
@@ -158,6 +159,14 @@
             return airportNames[code] ? `${airportNames[code]}（${code}）` : value;
         }
 
+        function tripDates(route) {
+            if (!route.departure_date) return '日期未指定';
+            const format = value => new Date(`${value}T00:00:00`).toLocaleDateString('zh-CN', {year:'numeric', month:'2-digit', day:'2-digit'});
+            return route.trip_type === 'round_trip' && route.return_date
+                ? `去程 ${format(route.departure_date)} → 返程 ${format(route.return_date)}`
+                : `去程 ${format(route.departure_date)}`;
+        }
+
         async function searchWithAI() {
             const query = document.getElementById('aiQuery').value.trim();
             if (query.length < 3) return alert('请描述你的行程');
@@ -250,7 +259,7 @@
             if (!routes.length) { el.innerHTML = '<span style="color:#999">暂无航线</span>'; return; }
             el.innerHTML = routes.map(r =>
                 `<div class="route-tag">
-                    ${escapeHtml(airportLabel(r.departure_city))} → ${escapeHtml(airportLabel(r.arrival_city))} ${r.airline ? '(' + escapeHtml(r.airline) + ')' : ''}
+                    <span>${escapeHtml(airportLabel(r.departure_city))} → ${escapeHtml(airportLabel(r.arrival_city))}<br><small>${escapeHtml(tripDates(r))}${r.airline ? ' · ' + escapeHtml(r.airline) : ''}</small></span>
                     <span class="delete" onclick="deleteRoute(${r.id})">×</span>
                 </div>`
             ).join('');
@@ -259,7 +268,7 @@
         function renderRouteSelect() {
             const sel = document.getElementById('chartRoute');
             sel.innerHTML = '<option value="">选择航线</option>' +
-                routes.map(r => `<option value="${r.id}">${escapeHtml(airportLabel(r.departure_city))} → ${escapeHtml(airportLabel(r.arrival_city))}</option>`).join('');
+                routes.map(r => `<option value="${r.id}">${escapeHtml(airportLabel(r.departure_city))} → ${escapeHtml(airportLabel(r.arrival_city))} · ${escapeHtml(tripDates(r))}</option>`).join('');
         }
 
         async function addRoute() {
