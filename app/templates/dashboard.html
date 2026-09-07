@@ -31,6 +31,11 @@
         .trend-card { border:1px solid var(--line); border-radius:11px; padding:14px 14px 4px; background:#fbfcff; min-width:0; }
         .trend-title { font-size:14px; font-weight:700; }
         .trend-meta { color:var(--muted); font-size:11px; margin-top:3px; }
+        .trend-summary { display:flex; align-items:baseline; gap:8px; margin-top:9px; }
+        .trend-price { font-size:19px; font-weight:750; color:var(--ink); }
+        .trend-change { font-size:12px; font-weight:650; color:var(--muted); }
+        .trend-change.up { color:var(--red); }
+        .trend-change.down { color:var(--green); }
         .trend-chart { width:100%; height:280px; }
         .latest-list { display:grid; gap:10px; }
         .latest { padding:14px; border:1px solid var(--line); border-radius:10px; background:#fbfcff; }
@@ -97,10 +102,21 @@
             trendCharts=[];
             const container=document.getElementById('trendCharts');
             if(!data.series.length){ container.innerHTML='<div class="empty">暂无 AI 报价历史，请先在搜索页完成查询</div>'; return; }
-            container.innerHTML=data.series.map((series,index)=>`<article class="trend-card"><div class="trend-title">${esc(series.departure)} → ${esc(series.arrival)}</div><div class="trend-meta">${esc(series.currency)} · ${series.points.length} 个价格观测点</div><div class="trend-chart" id="routeTrend${index}"></div></article>`).join('');
+            container.innerHTML=data.series.map((series,index)=>{
+                const first=series.points[0]?.min_price;
+                const latest=series.points.at(-1)?.min_price;
+                const change=first==null||latest==null?null:latest-first;
+                const changeClass=change>0?'up':change<0?'down':'';
+                const changeText=change==null?'暂无变化':change===0?'持平':`${change>0?'上涨':'下降'} ${fmtMoney(Math.abs(change),series.currency)}`;
+                return `<article class="trend-card"><div class="trend-title">${esc(series.departure)} → ${esc(series.arrival)}</div><div class="trend-meta">${esc(series.currency)} · ${series.points.length} 个价格观测点</div><div class="trend-summary"><span class="trend-price">${fmtMoney(latest,series.currency)}</span><span class="trend-change ${changeClass}">${changeText}</span></div><div class="trend-chart" id="routeTrend${index}"></div></article>`;
+            }).join('');
             data.series.forEach((series,index)=>{
                 const routeChart=echarts.init(document.getElementById(`routeTrend${index}`));
-                routeChart.setOption({color:['#5367e8'],tooltip:{trigger:'axis',valueFormatter:value=>fmtMoney(value,series.currency)},grid:{left:58,right:18,top:22,bottom:48},xAxis:{type:'category',boundaryGap:false,data:series.points.map(point=>fmtDate(point.searched_at)),axisLabel:{rotate:24,color:'#7b8394',fontSize:10},axisLine:{lineStyle:{color:'#dde1ea'}}},yAxis:{type:'value',scale:true,splitLine:{lineStyle:{color:'#edf0f5'}},axisLabel:{color:'#7b8394',fontSize:10}},series:[{name:`${series.departure} → ${series.arrival}`,type:'line',smooth:.25,symbol:'circle',symbolSize:6,data:series.points.map(point=>point.min_price),lineStyle:{width:2},areaStyle:{opacity:.08}}]});
+                const prices=series.points.map(point=>point.min_price);
+                const spread=Math.max(...prices)-Math.min(...prices);
+                const padding=Math.max(50,spread*.2);
+                const lineColor=prices.at(-1)>prices[0]?'#dc5864':prices.at(-1)<prices[0]?'#0b9b72':'#5367e8';
+                routeChart.setOption({color:[lineColor],tooltip:{trigger:'axis',formatter:items=>{const point=series.points[items[0].dataIndex];return `${fmtDate(point.searched_at)}<br/><strong>${fmtMoney(point.min_price,series.currency)}</strong><br/>可确认报价 ${point.offer_count} 条`}},grid:{left:70,right:24,top:32,bottom:48},xAxis:{type:'category',boundaryGap:false,data:series.points.map(point=>fmtDate(point.searched_at)),axisLabel:{rotate:24,color:'#7b8394',fontSize:10},axisLine:{lineStyle:{color:'#dde1ea'}}},yAxis:{type:'value',scale:true,min:value=>Math.max(0,Math.floor(value.min-padding)),max:value=>Math.ceil(value.max+padding),splitLine:{lineStyle:{color:'#edf0f5'}},axisLabel:{color:'#7b8394',fontSize:10,formatter:value=>`¥${value.toLocaleString()}`}},series:[{name:'最低参考价',type:'line',smooth:.2,symbol:'circle',symbolSize:8,data:prices,label:{show:true,position:'top',color:lineColor,fontSize:10,formatter:item=>fmtMoney(item.value,series.currency)},lineStyle:{width:3,color:lineColor},itemStyle:{color:'#fff',borderColor:lineColor,borderWidth:3},areaStyle:{color:lineColor,opacity:.08}}]});
                 trendCharts.push(routeChart);
             });
         }
