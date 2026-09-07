@@ -90,6 +90,17 @@
     </main>
     <script>
         let trendCharts = [];
+        const airportNames = {
+            CTU:'成都双流国际机场', TFU:'成都天府国际机场', PEK:'北京首都国际机场', PKX:'北京大兴国际机场',
+            SHA:'上海虹桥国际机场', PVG:'上海浦东国际机场', CAN:'广州白云国际机场', SZX:'深圳宝安国际机场',
+            HKG:'香港国际机场', NRT:'东京成田国际机场', HND:'东京羽田机场', KIX:'大阪关西国际机场',
+            ICN:'首尔仁川国际机场', SIN:'新加坡樟宜机场', BKK:'曼谷素万那普机场', CDG:'巴黎戴高乐机场',
+            LHR:'伦敦希思罗机场', LGW:'伦敦盖特威克机场', LON:'伦敦（城市）', FRA:'法兰克福机场',
+            AMS:'阿姆斯特丹史基浦机场', FCO:'罗马菲乌米奇诺机场', MXP:'米兰马尔彭萨机场',
+            OSL:'奥斯陆加勒穆恩机场', YVR:'温哥华国际机场', YYZ:'多伦多皮尔逊国际机场',
+            JFK:'纽约肯尼迪国际机场', LAX:'洛杉矶国际机场', SFO:'旧金山国际机场'
+        };
+        const airportLabel = value => { const code=String(value??'').toUpperCase(); return airportNames[code]?`${airportNames[code]}（${code}）`:value; };
         const fmtMoney = (value, currency='CNY') => value == null ? '—' : new Intl.NumberFormat('zh-CN',{style:'currency',currency,maximumFractionDigits:0}).format(value);
         const fmtDate = value => value ? new Date(value).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
         const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -108,7 +119,7 @@
                 const change=first==null||latest==null?null:latest-first;
                 const changeClass=change>0?'up':change<0?'down':'';
                 const changeText=change==null?'暂无变化':change===0?'持平':`${change>0?'上涨':'下降'} ${fmtMoney(Math.abs(change),series.currency)}`;
-                return `<article class="trend-card"><div class="trend-title">${esc(series.departure)} → ${esc(series.arrival)}</div><div class="trend-meta">${esc(series.currency)} · ${series.points.length} 个价格观测点</div><div class="trend-summary"><span class="trend-price">${fmtMoney(latest,series.currency)}</span><span class="trend-change ${changeClass}">${changeText}</span></div><div class="trend-chart" id="routeTrend${index}"></div></article>`;
+                return `<article class="trend-card"><div class="trend-title">${esc(airportLabel(series.departure))} → ${esc(airportLabel(series.arrival))}</div><div class="trend-meta">${esc(series.currency)} · ${series.points.length} 个价格观测点</div><div class="trend-summary"><span class="trend-price">${fmtMoney(latest,series.currency)}</span><span class="trend-change ${changeClass}">${changeText}</span></div><div class="trend-chart" id="routeTrend${index}"></div></article>`;
             }).join('');
             data.series.forEach((series,index)=>{
                 const routeChart=echarts.init(document.getElementById(`routeTrend${index}`));
@@ -125,15 +136,15 @@
             document.getElementById('routeCount').textContent=routes.length;
             const enabled=routes.filter(r=>r.enabled).length;
             document.getElementById('routeNote').textContent=`${enabled} 条正在监控`;
-            document.getElementById('routeRows').innerHTML=routes.length?routes.map(r=>`<tr><td><strong>${esc(r.departure_city)} → ${esc(r.arrival_city)}</strong></td><td>${esc(r.airline||'不限')}</td><td>${esc(r.departure_date||'未指定')}</td><td>${r.trip_type==='round_trip'?'往返':'单程'} · ${r.adults} 人</td><td>${esc(r.cabin_class)}</td><td>${fmtMoney(r.target_price,r.currency)}</td><td><span class="status ${r.enabled?'':'off'}">${r.enabled?'监控中':'已暂停'}</span></td></tr>`).join(''):'<tr><td colspan="7" class="empty">暂无监控航线，请先在搜索页添加</td></tr>';
+            document.getElementById('routeRows').innerHTML=routes.length?routes.map(r=>`<tr><td><strong>${esc(airportLabel(r.departure_city))} → ${esc(airportLabel(r.arrival_city))}</strong></td><td>${esc(r.airline||'不限')}</td><td>${esc(r.departure_date||'未指定')}</td><td>${r.trip_type==='round_trip'?'往返':'单程'} · ${r.adults} 人</td><td>${esc(r.cabin_class)}</td><td>${fmtMoney(r.target_price,r.currency)}</td><td><span class="status ${r.enabled?'':'off'}">${r.enabled?'监控中':'已暂停'}</span></td></tr>`).join(''):'<tr><td colspan="7" class="empty">暂无监控航线，请先在搜索页添加</td></tr>';
         }
 
         function renderPrices(prices){
             document.getElementById('pricedCount').textContent=prices.length;
             const lowest=prices.reduce((a,b)=>!a||b.price<a.price?b:a,null);
             document.getElementById('lowestPrice').textContent=lowest?fmtMoney(lowest.price):'—';
-            document.getElementById('lowestRoute').textContent=lowest?`${lowest.departure} → ${lowest.arrival}`:'暂无报价';
-            document.getElementById('latestList').innerHTML=prices.length?prices.slice(0,8).map(p=>`<article class="latest"><div class="latest-top"><span class="route">${esc(p.departure)} → ${esc(p.arrival)}</span><span class="price">${fmtMoney(p.price)}</span></div><div class="meta">${esc(p.airline||'航空公司不限')} · ${esc(p.cabin_class)} · ${fmtDate(p.scraped_at)}</div></article>`).join(''):'<div class="empty">暂无价格数据</div>';
+            document.getElementById('lowestRoute').textContent=lowest?`${airportLabel(lowest.departure)} → ${airportLabel(lowest.arrival)}`:'暂无报价';
+            document.getElementById('latestList').innerHTML=prices.length?prices.slice(0,8).map(p=>`<article class="latest"><div class="latest-top"><span class="route">${esc(airportLabel(p.departure))} → ${esc(airportLabel(p.arrival))}</span><span class="price">${fmtMoney(p.price)}</span></div><div class="meta">${esc(p.airline||'航空公司不限')} · ${esc(p.cabin_class)} · ${fmtDate(p.scraped_at)}</div></article>`).join(''):'<div class="empty">暂无价格数据</div>';
         }
 
         async function loadDashboard(){

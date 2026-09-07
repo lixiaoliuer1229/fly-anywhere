@@ -143,6 +143,21 @@
             return String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
         }
 
+        const airportNames = {
+            CTU:'成都双流国际机场', TFU:'成都天府国际机场', PEK:'北京首都国际机场', PKX:'北京大兴国际机场',
+            SHA:'上海虹桥国际机场', PVG:'上海浦东国际机场', CAN:'广州白云国际机场', SZX:'深圳宝安国际机场',
+            HKG:'香港国际机场', NRT:'东京成田国际机场', HND:'东京羽田机场', KIX:'大阪关西国际机场',
+            ICN:'首尔仁川国际机场', SIN:'新加坡樟宜机场', BKK:'曼谷素万那普机场', CDG:'巴黎戴高乐机场',
+            LHR:'伦敦希思罗机场', LGW:'伦敦盖特威克机场', LON:'伦敦（城市）', FRA:'法兰克福机场',
+            AMS:'阿姆斯特丹史基浦机场', FCO:'罗马菲乌米奇诺机场', MXP:'米兰马尔彭萨机场',
+            OSL:'奥斯陆加勒穆恩机场', YVR:'温哥华国际机场', YYZ:'多伦多皮尔逊国际机场',
+            JFK:'纽约肯尼迪国际机场', LAX:'洛杉矶国际机场', SFO:'旧金山国际机场'
+        };
+        function airportLabel(value) {
+            const code = String(value ?? '').toUpperCase();
+            return airportNames[code] ? `${airportNames[code]}（${code}）` : value;
+        }
+
         async function searchWithAI() {
             const query = document.getElementById('aiQuery').value.trim();
             if (query.length < 3) return alert('请描述你的行程');
@@ -175,7 +190,7 @@
             const price = offer.price == null ? '价格未确认' : `${escapeHtml(offer.currency)} ${Number(offer.price).toLocaleString()}`;
             return `<div class="offer">
                 <div class="offer-main">
-                    <div class="offer-route">${escapeHtml(offer.departure)} → ${escapeHtml(offer.arrival)}</div>
+                    <div class="offer-route">${escapeHtml(airportLabel(offer.departure))} → ${escapeHtml(airportLabel(offer.arrival))}</div>
                     <div class="offer-meta">${escapeHtml(offer.airline)} ${escapeHtml(offer.flight_number || '')} · ${escapeHtml(offer.cabin_class)} · ${escapeHtml(offer.departure_time || '时间未确认')}</div>
                     <div class="offer-evidence">${escapeHtml(offer.evidence)} · <a href="${escapeHtml(offer.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(offer.source_title)}</a></div>
                 </div>
@@ -197,7 +212,7 @@
                 }
                 const timestamps = [...new Set(data.series.flatMap(s => s.points.map(p => p.searched_at)))].sort();
                 aiPriceChart.setOption({
-                    title: {text: departure && arrival ? `${departure} → ${arrival}` : 'AI 搜索最低参考价', left: 'center'},
+                    title: {text: departure && arrival ? `${airportLabel(departure)} → ${airportLabel(arrival)}` : 'AI 搜索最低参考价', left: 'center'},
                     tooltip: {trigger: 'axis'},
                     legend: {top: 30, type: 'scroll'},
                     grid: {left: 70, right: 30, bottom: 60, top: 75},
@@ -206,7 +221,7 @@
                     series: data.series.map(s => {
                         const values = new Map(s.points.map(p => [p.searched_at, p.min_price]));
                         return {
-                            name: `${s.departure} → ${s.arrival} (${s.currency})`,
+                            name: `${airportLabel(s.departure)} → ${airportLabel(s.arrival)} (${s.currency})`,
                             type: 'line',
                             data: timestamps.map(t => values.has(t) ? values.get(t) : null),
                             connectNulls: false,
@@ -235,7 +250,7 @@
             if (!routes.length) { el.innerHTML = '<span style="color:#999">暂无航线</span>'; return; }
             el.innerHTML = routes.map(r =>
                 `<div class="route-tag">
-                    ${r.departure_city} → ${r.arrival_city} ${r.airline ? '(' + r.airline + ')' : ''}
+                    ${escapeHtml(airportLabel(r.departure_city))} → ${escapeHtml(airportLabel(r.arrival_city))} ${r.airline ? '(' + escapeHtml(r.airline) + ')' : ''}
                     <span class="delete" onclick="deleteRoute(${r.id})">×</span>
                 </div>`
             ).join('');
@@ -244,7 +259,7 @@
         function renderRouteSelect() {
             const sel = document.getElementById('chartRoute');
             sel.innerHTML = '<option value="">选择航线</option>' +
-                routes.map(r => `<option value="${r.id}">${r.departure_city} → ${r.arrival_city}</option>`).join('');
+                routes.map(r => `<option value="${r.id}">${escapeHtml(airportLabel(r.departure_city))} → ${escapeHtml(airportLabel(r.arrival_city))}</option>`).join('');
         }
 
         async function addRoute() {
@@ -274,7 +289,7 @@
             if (!data.length) { el.innerHTML = '<div class="empty">暂无数据，请先添加航线并抓取价格</div>'; return; }
             el.innerHTML = data.map(p =>
                 `<div class="price-card">
-                    <div class="route">${p.departure} → ${p.arrival}</div>
+                    <div class="route">${escapeHtml(airportLabel(p.departure))} → ${escapeHtml(airportLabel(p.arrival))}</div>
                     <div class="price">¥${p.price.toFixed(0)}</div>
                     <div class="meta">${p.airline || '-'} · ${p.cabin_class} · ${new Date(p.scraped_at).toLocaleString()}</div>
                 </div>`
