@@ -6,3 +6,4 @@ venv/
 .idea/
 .claude/
 flight_results.json
+dist/

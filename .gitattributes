@@ -1,0 +1,8 @@
+venv/ export-ignore
+.venv/ export-ignore
+**/__pycache__/ export-ignore
+*.pyc export-ignore
+.idea/ export-ignore
+.claude/ export-ignore
+.pytest_cache/ export-ignore
+dist/ export-ignore
