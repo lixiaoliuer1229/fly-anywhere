@@ -27,7 +27,11 @@
         .panel-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
         .panel h2 { margin:0; font-size:16px; }
         .panel-note { color:var(--muted); font-size:12px; }
-        #trendChart { width:100%; height:360px; }
+        .trend-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; }
+        .trend-card { border:1px solid var(--line); border-radius:11px; padding:14px 14px 4px; background:#fbfcff; min-width:0; }
+        .trend-title { font-size:14px; font-weight:700; }
+        .trend-meta { color:var(--muted); font-size:11px; margin-top:3px; }
+        .trend-chart { width:100%; height:280px; }
         .latest-list { display:grid; gap:10px; }
         .latest { padding:14px; border:1px solid var(--line); border-radius:10px; background:#fbfcff; }
         .latest-top { display:flex; justify-content:space-between; gap:10px; align-items:center; }
@@ -66,7 +70,7 @@
         <section class="grid">
             <div class="panel">
                 <div class="panel-head"><div><h2>AI 搜索价格趋势</h2><div class="panel-note" id="trendNote">每次搜索的最低可确认报价</div></div><button class="refresh" onclick="loadDashboard()">刷新</button></div>
-                <div id="trendChart"></div>
+                <div class="trend-grid" id="trendCharts"></div>
             </div>
             <div class="panel">
                 <div class="panel-head"><h2>最新监控价格</h2><span class="panel-note" id="updatedAt"></span></div>
@@ -80,7 +84,7 @@
         </section>
     </main>
     <script>
-        const chart = echarts.init(document.getElementById('trendChart'));
+        let trendCharts = [];
         const fmtMoney = (value, currency='CNY') => value == null ? '—' : new Intl.NumberFormat('zh-CN',{style:'currency',currency,maximumFractionDigits:0}).format(value);
         const fmtDate = value => value ? new Date(value).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
         const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -89,9 +93,16 @@
         function renderChart(data) {
             document.getElementById('pointCount').textContent=data.total_points;
             document.getElementById('trendNote').textContent=data.note;
-            if(!data.series.length){ chart.clear(); chart.setOption({title:{text:'暂无 AI 报价历史',subtext:'在搜索页完成查询后，这里会显示趋势',left:'center',top:'center',textStyle:{fontSize:15},subtextStyle:{color:'#8a91a2'}}}); return; }
-            const times=[...new Set(data.series.flatMap(s=>s.points.map(p=>p.searched_at)))].sort();
-            chart.setOption({color:['#5367e8','#0b9b72','#ed9b40','#9b62d4','#dc5864'],tooltip:{trigger:'axis'},legend:{type:'scroll',top:4,textStyle:{fontSize:11}},grid:{left:62,right:22,top:54,bottom:54},xAxis:{type:'category',data:times.map(fmtDate),axisLabel:{rotate:24,color:'#7b8394'},axisLine:{lineStyle:{color:'#dde1ea'}}},yAxis:{type:'value',scale:true,name:'价格',splitLine:{lineStyle:{color:'#edf0f5'}},axisLabel:{color:'#7b8394'}},series:data.series.map(s=>{const m=new Map(s.points.map(p=>[p.searched_at,p.min_price]));return{name:`${s.departure} → ${s.arrival} (${s.currency})`,type:'line',smooth:.25,symbolSize:6,data:times.map(t=>m.has(t)?m.get(t):null),connectNulls:false,lineStyle:{width:2},areaStyle:{opacity:.05}}})},true);
+            trendCharts.forEach(item=>item.dispose());
+            trendCharts=[];
+            const container=document.getElementById('trendCharts');
+            if(!data.series.length){ container.innerHTML='<div class="empty">暂无 AI 报价历史，请先在搜索页完成查询</div>'; return; }
+            container.innerHTML=data.series.map((series,index)=>`<article class="trend-card"><div class="trend-title">${esc(series.departure)} → ${esc(series.arrival)}</div><div class="trend-meta">${esc(series.currency)} · ${series.points.length} 个价格观测点</div><div class="trend-chart" id="routeTrend${index}"></div></article>`).join('');
+            data.series.forEach((series,index)=>{
+                const routeChart=echarts.init(document.getElementById(`routeTrend${index}`));
+                routeChart.setOption({color:['#5367e8'],tooltip:{trigger:'axis',valueFormatter:value=>fmtMoney(value,series.currency)},grid:{left:58,right:18,top:22,bottom:48},xAxis:{type:'category',boundaryGap:false,data:series.points.map(point=>fmtDate(point.searched_at)),axisLabel:{rotate:24,color:'#7b8394',fontSize:10},axisLine:{lineStyle:{color:'#dde1ea'}}},yAxis:{type:'value',scale:true,splitLine:{lineStyle:{color:'#edf0f5'}},axisLabel:{color:'#7b8394',fontSize:10}},series:[{name:`${series.departure} → ${series.arrival}`,type:'line',smooth:.25,symbol:'circle',symbolSize:6,data:series.points.map(point=>point.min_price),lineStyle:{width:2},areaStyle:{opacity:.08}}]});
+                trendCharts.push(routeChart);
+            });
         }
 
         function renderRoutes(routes){
@@ -114,7 +125,7 @@
             try { const [routes,prices,trends]=await Promise.all([getJson('/api/routes/'),getJson('/api/prices/latest'),getJson('/api/ai/price-trends?limit=500')]); renderRoutes(routes);renderPrices(prices);renderChart(trends);document.getElementById('updatedAt').textContent=`更新于 ${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`; }
             catch(e){ document.getElementById('latestList').innerHTML=`<div class="error">数据加载失败：${esc(e.message)}</div>`;document.getElementById('updatedAt').textContent='加载失败'; }
         }
-        window.addEventListener('resize',()=>chart.resize());
+        window.addEventListener('resize',()=>trendCharts.forEach(item=>item.resize()));
         loadDashboard();
     </script>
 </body>
