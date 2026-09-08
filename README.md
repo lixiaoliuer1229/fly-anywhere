@@ -127,3 +127,20 @@ AI 会搜索公开网页并展示可追溯的参考结果。输入越完整，�
 - SQLAlchemy + MySQL
 - ECharts
 - httpx + BeautifulSoup4
+
+## 用户登录
+
+首次执行数据库迁移会自动创建初始账号 `admin`，密码使用项目所有者指定的初始密码（代码中仅保存哈希）。若该账号已存在，迁移不会覆盖其密码。首次访问会进入登录页，也可点击“注册账号”创建其他账号。账号为 3–64 位字母、数字、下划线或短横线，不区分大小写；密码为 8–128 个字符。注册成功自动登录，页面顶部可退出。
+
+账号和加盐 scrypt 密码哈希存入 `users` 表，不保存明文密码。登录会话有效期为 7 天，数据库 `user_sessions` 仅保存令牌哈希；退出后立即失效。现有页面及业务 API 需要登录，航线、查询历史和价格数据由所有登录用户共享。当前允许自主注册，不包含角色权限或找回密码。
+
+更新后先运行 `alembic upgrade head`（Docker 启动时自动执行）。HTTPS 部署请设置 `AUTH_COOKIE_SECURE=true`；反向代理需正确传递请求协议和 Host，以便同源请求校验。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/auth/register` | JSON 账号密码注册：`username`、`password` |
+| POST | `/api/auth/login` | JSON 账号密码登录，设置 HttpOnly Cookie |
+| GET | `/api/auth/me` | 获取当前登录账号 |
+| POST | `/api/auth/logout` | 撤销当前会话并退出 |
+
+验证：`.venv/bin/python -m unittest discover -s tests`（使用隔离的 SQLite 数据库）。

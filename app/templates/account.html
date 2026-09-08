@@ -1,0 +1,19 @@
+<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px">
+    <span>{{ user.username }}</span>
+    <button type="button" id="logout" style="cursor:pointer;color:white;background:transparent;border:1px solid #ffffff70;border-radius:8px;padding:8px 12px">退出登录</button>
+</div>
+<script>
+const originalFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+    const response = await originalFetch(...args);
+    if (response.status === 401) window.location.replace('/login');
+    return response;
+};
+document.getElementById('logout').onclick = async () => {
+    try {
+        const response = await fetch('/api/auth/logout', {method:'POST'});
+        if (!response.ok) throw new Error();
+        window.location.replace('/login');
+    } catch { alert('退出失败，请重试'); }
+};
+</script>
