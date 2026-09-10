@@ -1,9 +1,9 @@
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 
-import schedule
 
 from app.database import SessionLocal
 from app.models import FlightOffer as FlightOfferRecord, Route, SearchRun
@@ -96,16 +96,36 @@ def run_price_fetch():
         db.close()
 
 
+def next_fetch_at(now):
+    """Return the next configured wall-clock time in the configured timezone."""
+    local_now = now.astimezone(ZoneInfo(settings.SCRAPE_TIMEZONE))
+    clock = datetime.strptime(settings.SCRAPE_DAILY_TIME, "%H:%M").time()
+    target = local_now.replace(hour=clock.hour, minute=clock.minute, second=0, microsecond=0)
+    if target <= local_now:
+        target += timedelta(days=1)
+    return target
+
+
 def start_scheduler():
-    """Start the background scheduler."""
-    hours = settings.SCRAPE_INTERVAL_HOURS
-    schedule.every(hours).hours.do(run_price_fetch)
-    print(f"Scheduler started: fetching every {hours} hours")
+    """Run once daily at a timezone-aware wall-clock time, then send the report."""
+    zone = ZoneInfo(settings.SCRAPE_TIMEZONE)
+    next_run = next_fetch_at(datetime.now(zone))
+    print(f"Scheduler started: daily {settings.SCRAPE_DAILY_TIME} {settings.SCRAPE_TIMEZONE}; next={next_run.isoformat()}")
 
     def run_loop():
+        nonlocal next_run
         while True:
-            schedule.run_pending()
-            time.sleep(60)
+            remaining = (next_run - datetime.now(zone)).total_seconds()
+            if remaining > 0:
+                time.sleep(min(30, remaining))
+                continue
+            try:
+                run_price_fetch()
+            except Exception as exc:
+                print(f"Scheduled fetch failed ({type(exc).__name__}); next daily run remains enabled.")
+            finally:
+                next_run = next_fetch_at(datetime.now(zone))
+                print(f"Next scheduled fetch: {next_run.isoformat()}")
 
     thread = threading.Thread(target=run_loop, daemon=True)
     thread.start()

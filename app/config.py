@@ -11,7 +11,9 @@ class Settings(BaseSettings):
     API_KEY: str = ""  # AviationStack or Amadeus API key
     API_SECRET: str = ""  # Amadeus API secret
     API_SOURCE: str = "aviationstack"  # aviationstack | amadeus
-    SCRAPE_INTERVAL_HOURS: int = 24
+    SCRAPE_INTERVAL_HOURS: int = 24  # Legacy; daily schedule uses fields below.
+    SCRAPE_DAILY_TIME: str = "09:30"
+    SCRAPE_TIMEZONE: str = "Asia/Shanghai"
 
     EMAIL_ENABLED: bool = False
     EMAIL_TO: str = ""  # Comma-separated recipient addresses
