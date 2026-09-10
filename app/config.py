@@ -13,6 +13,15 @@ class Settings(BaseSettings):
     API_SOURCE: str = "aviationstack"  # aviationstack | amadeus
     SCRAPE_INTERVAL_HOURS: int = 24
 
+    EMAIL_ENABLED: bool = False
+    EMAIL_TO: str = ""
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 465
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    SMTP_SSL: bool = True  # False uses STARTTLS
+
     # AI 联网搜索。Tavily 负责检索网页，LLM 负责规划检索并整理结构化结果。
     TAVILY_API_KEY: str = ""
     SERPAPI_API_KEY: str = ""

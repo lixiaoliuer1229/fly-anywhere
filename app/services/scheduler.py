@@ -86,6 +86,12 @@ def run_price_fetch():
                 run.completed_at = datetime.now()
                 db.commit()
                 print(f"Error fetching {query}: {e}")
+        # Delivery failures must not undo stored prices or stop the scheduler.
+        try:
+            from app.services.email_report import send_price_report
+            send_price_report(db, routes)
+        except Exception as exc:
+            print(f"Email report failed ({type(exc).__name__}); check SMTP configuration/connectivity.")
     finally:
         db.close()
 
