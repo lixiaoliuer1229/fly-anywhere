@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     SCRAPE_INTERVAL_HOURS: int = 24
 
     EMAIL_ENABLED: bool = False
-    EMAIL_TO: str = ""
+    EMAIL_TO: str = ""  # Comma-separated recipient addresses
     SMTP_HOST: str = ""
     SMTP_PORT: int = 465
     SMTP_USERNAME: str = ""
