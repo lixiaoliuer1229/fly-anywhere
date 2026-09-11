@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -118,3 +118,15 @@ class UserSession(Base):
     token_hash = Column(String(64), primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False, index=True)
+
+
+class ExchangeRate(Base):
+    __tablename__ = "exchange_rates"
+    __table_args__ = (UniqueConstraint("base", "quote", "rate_date", name="uq_exchange_rate_pair_date"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    base = Column(String(3), nullable=False)
+    quote = Column(String(3), nullable=False)
+    rate = Column(Numeric(18, 8), nullable=False)
+    rate_date = Column(Date, nullable=False)
+    fetched_at = Column(DateTime, nullable=False, default=datetime.utcnow)

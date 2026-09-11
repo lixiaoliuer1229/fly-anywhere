@@ -73,6 +73,15 @@
             <div class="metric"><div class="metric-label">最低监控价</div><div class="metric-value" id="lowestPrice">—</div><div class="metric-note" id="lowestRoute">暂无报价</div></div>
         </section>
 
+        <section class="panel" style="margin-top:16px" aria-label="人民币与日元汇率监控">
+            <div class="panel-head"><h2>人民币 / 日元汇率</h2><button class="refresh" id="fxFetch" onclick="updateFx()">立即获取汇率</button></div>
+            <div id="fxSummary" class="trend-price">正在加载…</div>
+            <p id="fxMeta" class="panel-note"></p>
+            <p class="panel-note">每日参考汇率，非银行实时兑换价；节假日可能沿用最近发布值。数据来源：<a href="https://frankfurter.dev/" target="_blank" rel="noopener">Frankfurter</a></p>
+            <p id="fxError" class="error" role="status" hidden></p>
+            <div id="fxChart" class="trend-chart" aria-label="1 人民币兑换日元历史曲线"></div>
+        </section>
+
         <section class="grid">
             <div class="panel">
                 <div class="panel-head"><div><h2>AI 搜索价格趋势</h2><div class="panel-note" id="trendNote">每次搜索的最低可确认报价</div></div><button class="refresh" onclick="loadDashboard()">刷新</button></div>
@@ -91,6 +100,40 @@
     </main>
     <script>
         let trendCharts = [];
+        let fxChart;
+        async function loadFx(){
+            const data=await getJson('/api/exchange-rates?limit=90');
+            const latest=data.latest;
+            document.getElementById('fxSummary').textContent=latest
+                ? `1 人民币 = ${latest.rate.toFixed(4)} 日元 · 100 日元 = ${latest.cny_per_100_jpy.toFixed(4)} 人民币`
+                : '暂无汇率记录，点击「立即获取汇率」开始监控';
+            document.getElementById('fxMeta').textContent=latest
+                ? `报价日期：${latest.rate_date} · 最近获取：${fmtDate(latest.fetched_at)} · ${data.schedule}自动更新 · 最近 ${data.points.length} 个报价日`
+                : `${data.schedule}自动更新`;
+            if(!fxChart) fxChart=echarts.init(document.getElementById('fxChart'));
+            fxChart.setOption({tooltip:{trigger:'axis'},grid:{left:65,right:20,bottom:40},
+                xAxis:{type:'category',data:data.points.map(p=>p.rate_date)},
+                yAxis:{type:'value',scale:true,name:'日元 / 1 人民币'},
+                series:[{name:'1 人民币兑换日元',type:'line',data:data.points.map(p=>p.rate),symbolSize:8,itemStyle:{color:'#5367e8'}}]});
+        }
+        async function refreshFx(){
+            const error=document.getElementById('fxError');
+            error.hidden=true;
+            try { await loadFx(); }
+            catch(e){ error.textContent=`汇率加载失败：${e.message}`;error.hidden=false; }
+        }
+        async function updateFx(){
+            const button=document.getElementById('fxFetch');
+            const error=document.getElementById('fxError');
+            button.disabled=true;button.textContent='正在获取…';error.hidden=true;
+            try {
+                const response=await fetch('/api/exchange-rates/fetch',{method:'POST'});
+                const data=await response.json();
+                if(!response.ok) throw new Error(data.detail||'获取失败');
+                await loadFx();
+            } catch(e){error.textContent=e.message;error.hidden=false;}
+            finally {button.disabled=false;button.textContent='立即获取汇率';}
+        }
         const airportNames = {
             CTU:'成都双流国际机场', TFU:'成都天府国际机场', PEK:'北京首都国际机场', PKX:'北京大兴国际机场',
             SHA:'上海虹桥国际机场', PVG:'上海浦东国际机场', CAN:'广州白云国际机场', SZX:'深圳宝安国际机场',
@@ -156,11 +199,12 @@
         }
 
         async function loadDashboard(){
+            refreshFx();
             document.getElementById('updatedAt').textContent='更新中…';
             try { const [routes,prices,trends]=await Promise.all([getJson('/api/routes/'),getJson('/api/prices/latest'),getJson('/api/ai/price-trends?limit=500')]); renderRoutes(routes);renderPrices(prices);renderChart(trends,routes);document.getElementById('updatedAt').textContent=`更新于 ${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`; }
             catch(e){ document.getElementById('latestList').innerHTML=`<div class="error">数据加载失败：${esc(e.message)}</div>`;document.getElementById('updatedAt').textContent='加载失败'; }
         }
-        window.addEventListener('resize',()=>trendCharts.forEach(item=>item.resize()));
+        window.addEventListener('resize',()=>{trendCharts.forEach(item=>item.resize());fxChart?.resize();});
         loadDashboard();
     </script>
 </body>

@@ -8,7 +8,7 @@ from sqlalchemy import text
 from starlette.requests import Request
 
 from app.database import engine
-from app.routers import ai_search, flights, prices, auth
+from app.routers import ai_search, flights, prices, auth, exchange_rates
 from app.routers.auth import current_user
 from app.services.scheduler import start_scheduler
 
@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI 机票搜索与价格监控", lifespan=lifespan)
 
 app.include_router(auth.router)
+app.include_router(exchange_rates.router, dependencies=[Depends(current_user)])
 app.include_router(flights.router, dependencies=[Depends(current_user)])
 app.include_router(prices.router, dependencies=[Depends(current_user)])
 app.include_router(ai_search.router, dependencies=[Depends(current_user)])

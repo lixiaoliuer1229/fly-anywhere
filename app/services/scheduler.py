@@ -12,14 +12,25 @@ from app.services.flight_search_agent import search_flight_prices_by_criteria
 from app.config import settings
 
 
-def run_price_fetch():
+def run_exchange_rate_fetch():
+    from app.services.exchange_rates import fetch_exchange_rate
+    with SessionLocal() as db:
+        try:
+            fetch_exchange_rate(db)
+            return True
+        except Exception as exc:
+            db.rollback()
+            print(f"Exchange rate fetch failed ({type(exc).__name__}); saved history is retained.")
+            return False
+
+
+def run_price_fetch(exchange_status=None):
     """Fetch and persist prices for enabled, fully specified monitored routes."""
     db = SessionLocal()
     try:
         routes = db.query(Route).filter(Route.enabled.is_(True)).all()
         if not routes:
             print("No routes configured, skipping fetch.")
-            return
 
         import asyncio
         for route in routes:
@@ -89,7 +100,7 @@ def run_price_fetch():
         # Delivery failures must not undo stored prices or stop the scheduler.
         try:
             from app.services.email_report import send_price_report
-            send_price_report(db, routes)
+            send_price_report(db, routes, exchange_status=exchange_status)
         except Exception as exc:
             print(f"Email report failed ({type(exc).__name__}); check SMTP configuration/connectivity.")
     finally:
@@ -120,7 +131,8 @@ def start_scheduler():
                 time.sleep(min(30, remaining))
                 continue
             try:
-                run_price_fetch()
+                exchange_status = run_exchange_rate_fetch()
+                run_price_fetch(exchange_status=exchange_status)
             except Exception as exc:
                 print(f"Scheduled fetch failed ({type(exc).__name__}); next daily run remains enabled.")
             finally:

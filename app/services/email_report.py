@@ -1,5 +1,5 @@
 """Send one history report after each scheduled fetch, using authenticated TLS SMTP."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from io import BytesIO
 from html import escape
@@ -11,7 +11,7 @@ import ssl
 from sqlalchemy import func
 
 from app.config import settings
-from app.models import FlightOffer, SearchRun
+from app.models import FlightOffer, SearchRun, ExchangeRate
 
 
 def price_history(db, route_id):
@@ -67,18 +67,58 @@ def render_chart(route, rows):
     return output.getvalue()
 
 
+def exchange_history(db):
+    return (db.query(ExchangeRate).filter(
+        ExchangeRate.base == "CNY", ExchangeRate.quote == "JPY",
+        ExchangeRate.rate_date >= (datetime.now(timezone.utc) - timedelta(days=90)).date())
+        .order_by(ExchangeRate.rate_date).all())
+
+
+def render_exchange_chart(rows):
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.dates import DayLocator, DateFormatter
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.text import Text
+
+    font = FontProperties(fname=str(Path(__file__).resolve().parents[1] / "assets/fonts/NotoSansSC-Regular.otf"))
+    fig = Figure(figsize=(10, 3.8), layout="constrained")
+    FigureCanvasAgg(fig)
+    ax = fig.subplots()
+    ax.set_title("人民币 / 日元 · 最近 90 天参考汇率走势")
+    if rows:
+        dates = [datetime.combine(row.rate_date, datetime.min.time()) for row in rows]
+        ax.plot(dates, [float(row.rate) for row in rows], marker="o", color="#2563eb")
+        padding = max(timedelta(hours=12), (max(dates) - min(dates)) / 20)
+        ax.set_xlim(min(dates) - padding, max(dates) + padding)
+        ax.xaxis.set_major_locator(DayLocator(interval=max(1, ((max(dates) - min(dates)).days + 6) // 7)))
+        ax.xaxis.set_major_formatter(DateFormatter("%m月%d日"))
+        ax.set_xlabel("来源报价日期")
+        ax.set_ylabel("日元 / 1 人民币")
+        ax.grid(axis="y", color="#e5e7eb")
+        ax.spines[["top", "right"]].set_visible(False)
+    else:
+        ax.text(.5, .5, "最近 90 天暂无汇率记录", ha="center", transform=ax.transAxes)
+        ax.set_axis_off()
+    for text in fig.findobj(Text):
+        text.set_fontproperties(font)
+    output = BytesIO()
+    fig.savefig(output, format="png", dpi=150)
+    return output.getvalue()
+
+
 def route_label(route):
     cities = {"CTU": "成都双流", "TFU": "成都天府", "YVR": "温哥华", "OSL": "奥斯陆", "LHR": "伦敦希思罗", "MIL": "米兰"}
     return f"{cities.get(route.departure_city, route.departure_city)} → {cities.get(route.arrival_city, route.arrival_city)}"
 
 
-def build_report(db, routes):
+def build_report(db, routes, exchange_status=None):
     message = EmailMessage()
-    message["Subject"] = f"机票价格走势图 · {datetime.now():%Y-%m-%d}"
+    message["Subject"] = f"机票与汇率走势日报 · {datetime.now():%Y-%m-%d}"
     message["From"] = settings.SMTP_FROM or settings.SMTP_USERNAME
     message["To"] = settings.EMAIL_TO
     introduction = "以下为最近 90 天已保存的机票参考报价。每个点表示一次成功查询的最低价（含起售价），连线仅连接观测点，不代表期间连续报价。不同币种分别绘制，实际价格以预订页面为准。"
-    lines = ["机票价格走势图", introduction]
+    lines = ["机票与汇率走势日报", introduction]
     sections = []
     images = []
     statuses = {"completed": "已完成", "failed": "失败", "running": "查询中"}
@@ -97,9 +137,24 @@ def build_report(db, routes):
                         f'<p>{escape(warning)}</p>'
                         f'<img src="cid:{cid[1:-1]}" alt="{escape(heading)}价格走势图" '
                         'style="display:block;width:100%;max-width:900px;height:auto;border:0">')
+    rows = exchange_history(db)
+    latest_rate = (db.query(ExchangeRate).filter(ExchangeRate.base == "CNY", ExchangeRate.quote == "JPY")
+                   .order_by(ExchangeRate.rate_date.desc()).first())
+    fx_summary = (f"1 人民币 = {latest_rate.rate:.4f} 日元；100 日元 = {100 / latest_rate.rate:.4f} 人民币。"
+                  f"报价日期：{latest_rate.rate_date}；最近获取：{latest_rate.fetched_at} UTC。"
+                  if latest_rate else "暂无汇率记录。")
+    fx_status = {True: "本轮汇率获取成功。", False: "本轮汇率获取失败，以下为已保存历史数据。"}.get(exchange_status, "以下为已保存汇率数据。")
+    fx_note = "数据来源：Frankfurter。每日参考汇率，非银行实时兑换价；节假日可能沿用最近报价，曲线按来源报价日期绘制。"
+    lines.extend(["人民币 / 日元汇率", fx_status, fx_summary, fx_note])
+    cid = make_msgid(domain="fly-anywhere.local")
+    images.append((cid, render_exchange_chart(rows)))
+    sections.append('<h2 style="font-size:18px;margin-top:28px">人民币 / 日元汇率</h2>'
+                    f'<p>{escape(fx_status)}</p><p>{escape(fx_summary)}</p><p>{escape(fx_note)}</p>'
+                    f'<img src="cid:{cid[1:-1]}" alt="人民币兑日元近90天参考汇率走势图" '
+                    'style="display:block;width:100%;max-width:900px;height:auto;border:0">')
     message.set_content("\n".join(lines) + "\n请使用支持 HTML 的邮件客户端查看正文走势图。")
     message.add_alternative('<!doctype html><html lang="zh-CN"><body style="font-family:sans-serif;color:#222;margin:24px">'
-                            '<h1 style="font-size:24px">机票价格走势图</h1>'
+                            '<h1 style="font-size:24px">机票与汇率走势日报</h1>'
                             f'<p style="line-height:1.7">{escape(introduction)}</p>'
                             + "".join(sections) + '</body></html>', subtype="html")
     html_part = message.get_payload()[-1]
@@ -108,13 +163,13 @@ def build_report(db, routes):
     return message
 
 
-def send_price_report(db, routes):
+def send_price_report(db, routes, exchange_status=None):
     if not settings.EMAIL_ENABLED:
         return False
     if not all((settings.EMAIL_TO, settings.SMTP_HOST, settings.SMTP_USERNAME, settings.SMTP_PASSWORD)):
         print("Email report skipped: configure EMAIL_TO, SMTP_HOST, SMTP_USERNAME and SMTP_PASSWORD.")
         return False
-    message = build_report(db, routes)
+    message = build_report(db, routes, exchange_status=exchange_status)
     context = ssl.create_default_context()
     if settings.SMTP_SSL:
         client = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30, context=context)
