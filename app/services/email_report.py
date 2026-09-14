@@ -15,19 +15,19 @@ from app.models import FlightOffer, SearchRun, ExchangeRate
 
 
 def price_history(db, route_id):
-    """Each point is a run's minimum observed price; never mix currencies."""
+    """Each point is a run's minimum observed CNY price."""
     return (db.query(SearchRun.started_at, FlightOffer.currency,
                      func.min(FlightOffer.price).label("price"))
             .join(FlightOffer, FlightOffer.search_run_id == SearchRun.id)
             .filter(SearchRun.route_id == route_id, SearchRun.status == "completed",
                     SearchRun.started_at >= datetime.now() - timedelta(days=90),
-                    FlightOffer.price.isnot(None))
+                    FlightOffer.price.isnot(None), FlightOffer.currency == "CNY")
             .group_by(SearchRun.id, SearchRun.started_at, FlightOffer.currency)
             .order_by(SearchRun.started_at).all())
 
 
 def render_chart(route, rows):
-    # Contract: 90-day observed minimum per search, separate currency panels;
+    # Contract: 90-day observed CNY minimum per search;
     # Connect observations when available; no data uses an explicit empty state.
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -37,6 +37,7 @@ def render_chart(route, rows):
 
     font = FontProperties(fname=str(Path(__file__).resolve().parents[1] / "assets/fonts/NotoSansSC-Regular.otf"))
 
+    rows = [row for row in rows if row.currency == "CNY"]
     currencies = sorted({row.currency for row in rows})
     fig = Figure(figsize=(10, 3.8 * max(1, len(currencies))), layout="constrained")
     FigureCanvasAgg(fig)
@@ -58,7 +59,7 @@ def render_chart(route, rows):
         ax.grid(axis="y", color="#e5e7eb")
         ax.spines[["top", "right"]].set_visible(False)
     if not currencies:
-        axes[0].text(.5, .5, "最近 90 天暂无有效报价", ha="center", transform=axes[0].transAxes)
+        axes[0].text(.5, .5, "最近 90 天暂无有效人民币报价", ha="center", transform=axes[0].transAxes)
         axes[0].set_axis_off()
     for text in fig.findobj(Text):
         text.set_fontproperties(font)
@@ -117,7 +118,7 @@ def build_report(db, routes, exchange_status=None):
     message["Subject"] = f"机票与汇率走势日报 · {datetime.now():%Y-%m-%d}"
     message["From"] = settings.SMTP_FROM or settings.SMTP_USERNAME
     message["To"] = settings.EMAIL_TO
-    introduction = "以下为最近 90 天已保存的机票参考报价。每个点表示一次成功查询的最低价（含起售价），连线仅连接观测点，不代表期间连续报价。不同币种分别绘制，实际价格以预订页面为准。"
+    introduction = "以下仅展示最近 90 天已保存的人民币机票参考报价。每个点表示一次成功查询的人民币最低价（含起售价），连线仅连接观测点，不代表期间连续报价。实际价格以预订页面为准。"
     lines = ["机票与汇率走势日报", introduction]
     sections = []
     images = []

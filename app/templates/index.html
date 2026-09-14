@@ -182,10 +182,10 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({query})
                 });
-                const offers = data.offers || [];
+                const offers = (data.offers || []).filter(offer => offer.currency?.toUpperCase() === 'CNY');
                 results.innerHTML = `
                     <div class="offer-evidence">${escapeHtml(data.summary)}</div>
-                    ${offers.length ? `<div class="offer-list">${offers.map(renderOffer).join('')}</div>` : '<div class="empty">没有找到可确认的公开价格，请补充日期或换一个描述重试。</div>'}
+                    ${offers.length ? `<div class="offer-list">${offers.map(renderOffer).join('')}</div>` : '<div class="empty">没有找到可确认的人民币报价，请补充日期或换一个描述重试。</div>'}
                     <div class="warning">${escapeHtml(data.warning)}</div>`;
                 if (offers.length) loadAiPriceTrend(offers[0].departure, offers[0].arrival);
             } catch (error) {

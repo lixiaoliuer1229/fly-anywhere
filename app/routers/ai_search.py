@@ -45,6 +45,7 @@ def price_trends(
             SearchRun.status == "completed",
             SearchRun.completed_at.isnot(None),
             FlightOfferRecord.price.isnot(None),
+            FlightOfferRecord.currency == "CNY",
         )
     )
     if departure:
