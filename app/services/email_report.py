@@ -47,6 +47,15 @@ def render_chart(route, rows):
         points = [r for r in rows if r.currency == currency]
         ax.plot([r.started_at for r in points], [float(r.price) for r in points],
                 marker="o", linestyle="-", color="#2563eb")
+        for index, point in enumerate(points):
+            label = f"{point.price:,.2f}".rstrip("0").rstrip(".")
+            above = index % 2 == 0
+            ax.annotate(label, (point.started_at, float(point.price)),
+                        xytext=(0, 10 if above else -12), textcoords="offset points",
+                        ha="center", va="bottom" if above else "top", fontsize=9,
+                        color="#1d4ed8", annotation_clip=False,
+                        bbox=dict(facecolor="white", edgecolor="none", alpha=.85, pad=1))
+        ax.margins(y=.18)
         ax.set_title(f"近 90 天每次查询的最低参考价 · 共 {len(points)} 个观测点", fontsize=10)
         ax.set_ylabel("价格（" + {"CNY": "人民币元", "USD": "美元", "CAD": "加元", "GBP": "英镑", "EUR": "欧元", "NOK": "挪威克朗"}.get(currency, currency) + "）")
         ax.set_xlabel("查询时间")
@@ -62,7 +71,9 @@ def render_chart(route, rows):
         axes[0].text(.5, .5, "最近 90 天暂无有效人民币报价", ha="center", transform=axes[0].transAxes)
         axes[0].set_axis_off()
     for text in fig.findobj(Text):
+        size = text.get_fontsize()
         text.set_fontproperties(font)
+        text.set_fontsize(size)
     output = BytesIO()
     fig.savefig(output, format="png", dpi=150)
     return output.getvalue()
