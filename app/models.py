@@ -21,6 +21,7 @@ class Route(Base):
     target_price = Column(Numeric(12, 2), nullable=True)
     currency = Column(String(3), nullable=False, default="CNY")
     enabled = Column(Boolean, nullable=False, default=True)
+    report_recipient = Column(String(254), nullable=True, comment="专属日报收件邮箱；为空时使用默认收件人")
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

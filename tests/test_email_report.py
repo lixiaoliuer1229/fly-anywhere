@@ -8,6 +8,40 @@ from app.services import email_report
 
 
 class EmailReportTests(unittest.TestCase):
+    def test_exclusive_routes_never_enter_default_report(self):
+        default = SimpleNamespace(report_recipient=None)
+        private = SimpleNamespace(report_recipient='private@example.com')
+        other = SimpleNamespace(report_recipient='other@example.com')
+        db = MagicMock()
+        with patch.object(email_report, 'send_price_report', side_effect=[RuntimeError('failed'), True, True]) as send:
+            results = email_report.send_scheduled_reports(db, [default, private, other], exchange_status=True)
+        self.assertEqual(results, [False, True, True])
+        self.assertEqual(send.call_args_list[0].args[1], [default])
+        self.assertEqual(send.call_args_list[1].args[1], [private])
+        self.assertEqual(send.call_args_list[1].kwargs['recipient'], 'private@example.com')
+        self.assertFalse(send.call_args_list[1].kwargs['include_exchange'])
+        self.assertEqual(send.call_args_list[2].args[1], [other])
+
+    def test_private_report_has_only_requested_route_and_recipient(self):
+        route = SimpleNamespace(id=9, departure_city='PVG', arrival_city='FCO',
+                                departure_date=date(2027, 4, 29), return_date=date(2027, 5, 6))
+        db = MagicMock()
+        db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
+        with patch.object(email_report, 'price_history', return_value=[]), \
+             patch.object(email_report, 'render_chart', return_value=b'png'), \
+             patch.object(email_report, 'exchange_history') as fx:
+            message = email_report.build_report(db, [route], recipient='private@example.com', include_exchange=False)
+        self.assertEqual(message['To'], 'private@example.com')
+        self.assertIsNone(message['Cc'])
+        self.assertIsNone(message['Bcc'])
+        fx.assert_not_called()
+        html = message.get_body(preferencelist=('html',)).get_content()
+        self.assertIn('上海浦东', html)
+        self.assertIn('罗马 Fiumicino', html)
+        self.assertIn('2027-04-29', html)
+        self.assertNotIn('日元', html)
+        self.assertEqual(len([p for p in message.walk() if p.get_content_type() == 'image/png']), 1)
+
     def test_png_handles_empty_and_mixed_currency(self):
         route = SimpleNamespace(departure_city="CTU", arrival_city="MIL",
                                 departure_date=date(2026, 10, 1), return_date=date(2026, 10, 8))
