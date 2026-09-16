@@ -4,7 +4,7 @@ from email.message import EmailMessage
 from io import BytesIO
 from html import escape
 from pathlib import Path
-from email.utils import make_msgid
+from email.utils import make_msgid, getaddresses
 import smtplib
 import ssl
 
@@ -201,13 +201,19 @@ def send_price_report(db, routes, exchange_status=None, *, recipient=None, inclu
 
 
 def send_scheduled_reports(db, routes, exchange_status=None):
-    """Keep exclusive routes out of the default report and isolate delivery failures."""
+    """Merge routes shared by all default recipients into their existing report."""
     default_routes = []
     exclusive = {}
+    default_addresses = {address.lower() for _, address in getaddresses([settings.EMAIL_TO]) if address}
     for route in routes:
         recipient = (getattr(route, "report_recipient", None) or "").strip()
         if recipient:
-            exclusive.setdefault(recipient, []).append(route)
+            addresses = [address for _, address in getaddresses([recipient]) if address]
+            if default_addresses and default_addresses.issubset({address.lower() for address in addresses}):
+                default_routes.append(route)
+                addresses = [address for address in addresses if address.lower() not in default_addresses]
+            if addresses:
+                exclusive.setdefault(",".join(addresses), []).append(route)
         else:
             default_routes.append(route)
     deliveries = [(default_routes, {})]

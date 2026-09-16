@@ -8,6 +8,20 @@ from app.services import email_report
 
 
 class EmailReportTests(unittest.TestCase):
+    def test_shared_rome_route_is_merged_into_default_report(self):
+        original = SimpleNamespace(report_recipient=None)
+        rome = SimpleNamespace(report_recipient='first@example.com,second@example.com,zhen@example.com')
+        private = SimpleNamespace(report_recipient='zhang@example.com,zhen@example.com')
+        with patch.object(email_report.settings, 'EMAIL_TO', 'first@example.com,second@example.com'), \
+             patch.object(email_report, 'send_price_report', return_value=True) as send:
+            email_report.send_scheduled_reports(MagicMock(), [original, rome, private])
+        self.assertEqual(send.call_args_list[0].args[1], [original, rome])
+        self.assertNotIn('recipient', send.call_args_list[0].kwargs)
+        self.assertEqual(send.call_args_list[1].args[1], [rome])
+        self.assertEqual(send.call_args_list[1].kwargs['recipient'], 'zhen@example.com')
+        self.assertEqual(send.call_args_list[2].args[1], [private])
+        self.assertEqual(send.call_args_list[2].kwargs['recipient'], 'zhang@example.com,zhen@example.com')
+
     def test_exclusive_routes_never_enter_default_report(self):
         default = SimpleNamespace(report_recipient=None)
         private = SimpleNamespace(report_recipient='private@example.com')
