@@ -157,7 +157,7 @@ def build_report(db, routes, exchange_status=None, *, recipient=None, include_ex
         fx_summary = (f"1 人民币 = {latest_rate.rate:.4f} 日元；100 日元 = {100 / latest_rate.rate:.4f} 人民币。"
                       f"报价日期：{latest_rate.rate_date}；最近获取：{latest_rate.fetched_at} UTC。"
                       if latest_rate else "暂无汇率记录。")
-        fx_status = {True: "本轮汇率获取成功。", False: "本轮汇率获取失败，以下为已保存历史数据。"}.get(exchange_status, "以下为已保存汇率数据。")
+        fx_status = {"unavailable": "北京时间当天汇率尚未发布，以下为已保存历史数据，并非当天行情。", True: "本轮已获取北京时间当天参考汇率。", False: "本轮汇率获取失败，以下为已保存历史数据。"}.get(exchange_status, "以下为已保存汇率数据。")
         fx_note = "数据来源：Frankfurter。每日参考汇率，非银行实时兑换价；节假日可能沿用最近报价，曲线按来源报价日期绘制。"
         lines.extend(["人民币 / 日元汇率", fx_status, fx_summary, fx_note])
         cid = make_msgid(domain="fly-anywhere.local")

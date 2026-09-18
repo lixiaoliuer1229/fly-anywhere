@@ -1,6 +1,7 @@
 """Daily reference rates; preserve source dates instead of inventing weekend points."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy.exc import IntegrityError
@@ -10,9 +11,20 @@ from app.models import ExchangeRate
 SOURCE_URL = "https://api.frankfurter.dev/v2/rate/CNY/JPY"
 
 
+class CurrentRateUnavailable(ValueError):
+    """The provider has not published a reference rate for today in Shanghai."""
+
+
+def quote_today():
+    return datetime.now(ZoneInfo("Asia/Shanghai")).date()
+
+
 def fetch_exchange_rate(db):
+    requested_date = quote_today()
     with httpx.Client(timeout=20) as client:
-        response = client.get(SOURCE_URL)
+        response = client.get(SOURCE_URL, params={"date": requested_date.isoformat()})
+        if response.status_code == 404:
+            raise CurrentRateUnavailable("北京时间当天汇率尚未发布，请稍后重试；历史报价保留原日期。")
         response.raise_for_status()
         data = response.json()
     try:
@@ -20,10 +32,12 @@ def fetch_exchange_rate(db):
         rate_date = date.fromisoformat(data["date"])
         if (data["base"] != "CNY" or data["quote"] != "JPY"
                 or not rate.is_finite() or not 0 < rate < 1000000
-                or rate_date > datetime.now(timezone.utc).date()):
+                or rate_date > requested_date):
             raise ValueError("Invalid reference rate")
     except (KeyError, TypeError, InvalidOperation) as exc:
         raise ValueError("Invalid reference rate response") from exc
+    if rate_date != requested_date:
+        raise CurrentRateUnavailable("数据源未返回北京时间当天报价；历史报价保留原日期。")
     values = dict(rate=rate, fetched_at=datetime.utcnow())
     row = db.query(ExchangeRate).filter_by(base="CNY", quote="JPY", rate_date=rate_date).first()
     if row:

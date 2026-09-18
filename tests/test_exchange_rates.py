@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 from unittest.mock import patch, Mock
 from decimal import Decimal
 
@@ -24,13 +25,16 @@ class ExchangeRateTests(unittest.TestCase):
             yield self.db
         app.dependency_overrides[get_db] = database
         self.client = TestClient(app)
-        self.response = Mock()
+        self.today = patch("app.services.exchange_rates.quote_today", return_value=date(2026, 9, 10))
+        self.today_mock = self.today.start()
+        self.response = Mock(status_code=200)
         self.response.json.return_value = dict(base='CNY', quote='JPY', rate=20, date='2026-09-10')
         self.http = patch('app.services.exchange_rates.httpx.Client')
         self.http.start().return_value.__enter__.return_value.get.return_value = self.response
 
     def tearDown(self):
         self.http.stop()
+        self.today.stop()
         self.client.close()
         app.dependency_overrides.clear()
         self.db.close()
@@ -58,6 +62,7 @@ class ExchangeRateTests(unittest.TestCase):
         self.assertEqual(self.db.query(ExchangeRate).count(), 1)
         self.assertEqual(self.db.query(ExchangeRate).one().rate, Decimal(21))
         self.response.json.return_value['date'] = '2026-09-09'
+        self.today_mock.return_value = date(2026, 9, 9)
         fetch_exchange_rate(self.db)
         self.login()
         result = self.client.get('/api/exchange-rates').json()
@@ -80,3 +85,26 @@ class ExchangeRateTests(unittest.TestCase):
         with patch('app.services.scheduler.SessionLocal', self.sessions):
             run_exchange_rate_fetch()
         self.assertEqual(self.db.query(ExchangeRate).count(), 1)
+
+    def test_previous_day_and_unpublished_rate_do_not_write(self):
+        from app.services.exchange_rates import CurrentRateUnavailable
+        self.today_mock.return_value = date(2026, 9, 11)
+        with self.assertRaises(CurrentRateUnavailable):
+            fetch_exchange_rate(self.db)
+        self.assertEqual(self.db.query(ExchangeRate).count(), 0)
+        self.response.status_code = 404
+        self.login()
+        response = self.client.post('/api/exchange-rates/fetch')
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('当天汇率尚未发布', response.json()['detail'])
+        self.assertEqual(self.db.query(ExchangeRate).count(), 0)
+
+    def test_quote_date_uses_shanghai_not_utc(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        self.today.stop()
+        from app.services.exchange_rates import quote_today
+        with patch('app.services.exchange_rates.datetime') as clock:
+            clock.now.return_value = datetime(2026, 9, 11, 0, 30, tzinfo=ZoneInfo('Asia/Shanghai'))
+            self.assertEqual(quote_today(), date(2026, 9, 11))
+            clock.now.assert_called_once_with(ZoneInfo('Asia/Shanghai'))
