@@ -12,6 +12,9 @@ from sqlalchemy import func
 
 from app.config import settings
 from app.models import FlightOffer, SearchRun, ExchangeRate
+from app.services.exchange_rates import MONITORED_QUOTES
+
+CURRENCY_NAMES = {"JPY": "日元", "CAD": "加元"}
 
 
 def price_history(db, route_id):
@@ -79,14 +82,15 @@ def render_chart(route, rows):
     return output.getvalue()
 
 
-def exchange_history(db):
+def exchange_history(db, quote="JPY"):
     return (db.query(ExchangeRate).filter(
-        ExchangeRate.base == "CNY", ExchangeRate.quote == "JPY",
+        ExchangeRate.base == "CNY", ExchangeRate.quote == quote,
         ExchangeRate.rate_date >= (datetime.now(timezone.utc) - timedelta(days=90)).date())
         .order_by(ExchangeRate.rate_date).all())
 
 
-def render_exchange_chart(rows):
+def render_exchange_chart(rows, quote="JPY"):
+    currency_name = CURRENCY_NAMES[quote]
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.dates import DayLocator, DateFormatter
@@ -97,7 +101,7 @@ def render_exchange_chart(rows):
     fig = Figure(figsize=(10, 3.8), layout="constrained")
     FigureCanvasAgg(fig)
     ax = fig.subplots()
-    ax.set_title("人民币 / 日元 · 最近 90 天参考汇率走势")
+    ax.set_title(f"人民币 / {currency_name} · 最近 90 天参考汇率走势")
     if rows:
         dates = [datetime.combine(row.rate_date, datetime.min.time()) for row in rows]
         ax.plot(dates, [float(row.rate) for row in rows], marker="o", color="#2563eb")
@@ -106,7 +110,7 @@ def render_exchange_chart(rows):
         ax.xaxis.set_major_locator(DayLocator(interval=max(1, ((max(dates) - min(dates)).days + 6) // 7)))
         ax.xaxis.set_major_formatter(DateFormatter("%m月%d日"))
         ax.set_xlabel("来源报价日期")
-        ax.set_ylabel("日元 / 1 人民币")
+        ax.set_ylabel(f"{currency_name} / 1 人民币")
         ax.grid(axis="y", color="#e5e7eb")
         ax.spines[["top", "right"]].set_visible(False)
     else:
@@ -151,21 +155,24 @@ def build_report(db, routes, exchange_status=None, *, recipient=None, include_ex
                         f'<img src="cid:{cid[1:-1]}" alt="{escape(heading)}价格走势图" '
                         'style="display:block;width:100%;max-width:900px;height:auto;border:0">')
     if include_exchange:
-        rows = exchange_history(db)
-        latest_rate = (db.query(ExchangeRate).filter(ExchangeRate.base == "CNY", ExchangeRate.quote == "JPY")
-                       .order_by(ExchangeRate.rate_date.desc()).first())
-        fx_summary = (f"1 人民币 = {latest_rate.rate:.4f} 日元；100 日元 = {100 / latest_rate.rate:.4f} 人民币。"
-                      f"报价日期：{latest_rate.rate_date}；最近获取：{latest_rate.fetched_at} UTC。"
-                      if latest_rate else "暂无汇率记录。")
-        fx_status = {"unavailable": "北京时间当天汇率尚未发布，以下为已保存历史数据，并非当天行情。", True: "本轮已获取北京时间当天参考汇率。", False: "本轮汇率获取失败，以下为已保存历史数据。"}.get(exchange_status, "以下为已保存汇率数据。")
-        fx_note = "数据来源：Frankfurter。每日参考汇率，非银行实时兑换价；节假日可能沿用最近报价，曲线按来源报价日期绘制。"
-        lines.extend(["人民币 / 日元汇率", fx_status, fx_summary, fx_note])
-        cid = make_msgid(domain="fly-anywhere.local")
-        images.append((cid, render_exchange_chart(rows)))
-        sections.append('<h2 style="font-size:18px;margin-top:28px">人民币 / 日元汇率</h2>'
-                        f'<p>{escape(fx_status)}</p><p>{escape(fx_summary)}</p><p>{escape(fx_note)}</p>'
-                        f'<img src="cid:{cid[1:-1]}" alt="人民币兑日元近90天参考汇率走势图" '
-                        'style="display:block;width:100%;max-width:900px;height:auto;border:0">')
+        for quote in MONITORED_QUOTES:
+            currency_name = CURRENCY_NAMES[quote]
+            pair_status = exchange_status.get(quote) if isinstance(exchange_status, dict) else exchange_status
+            rows = exchange_history(db, quote)
+            latest_rate = (db.query(ExchangeRate).filter(ExchangeRate.base == "CNY", ExchangeRate.quote == quote)
+                           .order_by(ExchangeRate.rate_date.desc()).first())
+            fx_summary = (f"1 人民币 = {latest_rate.rate:.4f} {currency_name}；100 {currency_name} = {100 / latest_rate.rate:.4f} 人民币。"
+                          f"报价日期：{latest_rate.rate_date}；最近获取：{latest_rate.fetched_at} UTC。"
+                          if latest_rate else "暂无汇率记录。")
+            fx_status = {"unavailable": "北京时间当天汇率尚未发布，以下为已保存历史数据，并非当天行情。", True: "本轮已获取北京时间当天参考汇率。", False: "本轮汇率获取失败，以下为已保存历史数据。"}.get(pair_status, "以下为已保存汇率数据。")
+            fx_note = "数据来源：Frankfurter。每日参考汇率，非银行实时兑换价；节假日可能沿用最近报价，曲线按来源报价日期绘制。"
+            lines.extend([f"人民币 / {currency_name}汇率", fx_status, fx_summary, fx_note])
+            cid = make_msgid(domain="fly-anywhere.local")
+            images.append((cid, render_exchange_chart(rows, quote)))
+            sections.append(f'<h2 style="font-size:18px;margin-top:28px">人民币 / {currency_name}汇率</h2>'
+                            f'<p>{escape(fx_status)}</p><p>{escape(fx_summary)}</p><p>{escape(fx_note)}</p>'
+                            f'<img src="cid:{cid[1:-1]}" alt="人民币兑{currency_name}近90天参考汇率走势图" '
+                            'style="display:block;width:100%;max-width:900px;height:auto;border:0">')
     message.set_content("\n".join(lines) + "\n请使用支持 HTML 的邮件客户端查看正文走势图。")
     message.add_alternative('<!doctype html><html lang="zh-CN"><body style="font-family:sans-serif;color:#222;margin:24px">'
                             f'<h1 style="font-size:24px">{escape(title)}</h1>'

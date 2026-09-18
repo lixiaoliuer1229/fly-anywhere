@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models import ExchangeRate
 
 SOURCE_URL = "https://api.frankfurter.dev/v2/rate/CNY/JPY"
+MONITORED_QUOTES = ("JPY", "CAD")
 
 
 class CurrentRateUnavailable(ValueError):
@@ -19,10 +20,12 @@ def quote_today():
     return datetime.now(ZoneInfo("Asia/Shanghai")).date()
 
 
-def fetch_exchange_rate(db):
+def fetch_exchange_rate(db, quote="JPY"):
+    if quote not in MONITORED_QUOTES:
+        raise ValueError("Unsupported currency")
     requested_date = quote_today()
     with httpx.Client(timeout=20) as client:
-        response = client.get(SOURCE_URL, params={"date": requested_date.isoformat()})
+        response = client.get(f"https://api.frankfurter.dev/v2/rate/CNY/{quote}", params={"date": requested_date.isoformat()})
         if response.status_code == 404:
             raise CurrentRateUnavailable("北京时间当天汇率尚未发布，请稍后重试；历史报价保留原日期。")
         response.raise_for_status()
@@ -30,7 +33,7 @@ def fetch_exchange_rate(db):
     try:
         rate = Decimal(str(data["rate"]))
         rate_date = date.fromisoformat(data["date"])
-        if (data["base"] != "CNY" or data["quote"] != "JPY"
+        if (data["base"] != "CNY" or data["quote"] != quote
                 or not rate.is_finite() or not 0 < rate < 1000000
                 or rate_date > requested_date):
             raise ValueError("Invalid reference rate")
@@ -39,19 +42,19 @@ def fetch_exchange_rate(db):
     if rate_date != requested_date:
         raise CurrentRateUnavailable("数据源未返回北京时间当天报价；历史报价保留原日期。")
     values = dict(rate=rate, fetched_at=datetime.utcnow())
-    row = db.query(ExchangeRate).filter_by(base="CNY", quote="JPY", rate_date=rate_date).first()
+    row = db.query(ExchangeRate).filter_by(base="CNY", quote=quote, rate_date=rate_date).first()
     if row:
         for key, value in values.items():
             setattr(row, key, value)
     else:
-        row = ExchangeRate(base="CNY", quote="JPY", rate_date=rate_date, **values)
+        row = ExchangeRate(base="CNY", quote=quote, rate_date=rate_date, **values)
         db.add(row)
     try:
         db.commit()
     except IntegrityError:
         # Another worker may have saved the same source date concurrently.
         db.rollback()
-        row = db.query(ExchangeRate).filter_by(base="CNY", quote="JPY", rate_date=rate_date).one()
+        row = db.query(ExchangeRate).filter_by(base="CNY", quote=quote, rate_date=rate_date).one()
     db.refresh(row)
     return row
 

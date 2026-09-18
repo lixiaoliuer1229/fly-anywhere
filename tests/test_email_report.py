@@ -54,6 +54,7 @@ class EmailReportTests(unittest.TestCase):
         self.assertIn('罗马 Fiumicino', html)
         self.assertIn('2027-04-29', html)
         self.assertNotIn('日元', html)
+        self.assertNotIn('加元', html)
         self.assertEqual(len([p for p in message.walk() if p.get_content_type() == 'image/png']), 1)
 
     def test_png_handles_empty_and_mixed_currency(self):
@@ -78,7 +79,7 @@ class EmailReportTests(unittest.TestCase):
              patch.object(email_report, 'render_exchange_chart', return_value=b'png'):
             message = email_report.build_report(db, [route])
         images = [p for p in message.walk() if p.get_content_type() == 'image/png']
-        self.assertEqual(len(images), 2)
+        self.assertEqual(len(images), 3)
         self.assertEqual(images[0].get_content_disposition(), 'inline')
         self.assertIsNone(images[0].get_filename())
         self.assertFalse(any(p.get_content_disposition() == 'attachment' for p in message.walk()))
@@ -86,6 +87,7 @@ class EmailReportTests(unittest.TestCase):
         self.assertIn('cid:' + images[0]['Content-ID'][1:-1], html)
         self.assertIn('成都双流', html)
         self.assertIn('人民币 / 日元汇率', html)
+        self.assertIn('人民币 / 加元汇率', html)
         self.assertIn('暂无汇率记录', html)
         for image in images:
             self.assertIn('cid:' + image['Content-ID'][1:-1], html)
@@ -111,6 +113,19 @@ class EmailReportTests(unittest.TestCase):
             self.assertIn('获取失败', content)
             self.assertIn('100 日元 = 5.0000 人民币', content)
             self.assertIn('2026-09-10', content)
+
+    def test_cad_status_and_plain_text_are_independent(self):
+        db = MagicMock()
+        db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
+        with patch.object(email_report, 'exchange_history', return_value=[]), \
+             patch.object(email_report, 'render_exchange_chart', return_value=b'png'):
+            message = email_report.build_report(db, [], exchange_status={'JPY': True, 'CAD':'unavailable'})
+        for body in ('plain', 'html'):
+            content = message.get_body(preferencelist=(body,)).get_content()
+            self.assertIn('人民币 / 加元汇率', content)
+            cad = content.split('人民币 / 加元汇率')[1]
+            self.assertIn('当天汇率尚未发布', cad)
+            self.assertNotIn('本轮已获取', cad)
 
     def test_missing_credentials_does_not_connect(self):
         with patch.object(email_report.settings, 'EMAIL_ENABLED', True), \

@@ -13,19 +13,22 @@ from app.config import settings
 
 
 def run_exchange_rate_fetch():
-    from app.services.exchange_rates import CurrentRateUnavailable, fetch_exchange_rate
-    with SessionLocal() as db:
-        try:
-            fetch_exchange_rate(db)
-            return True
-        except CurrentRateUnavailable:
-            db.rollback()
-            print("Today's exchange reference rate is not published; history retained.")
-            return "unavailable"
-        except Exception as exc:
-            db.rollback()
-            print(f"Exchange rate fetch failed ({type(exc).__name__}); saved history is retained.")
-            return False
+    from app.services.exchange_rates import CurrentRateUnavailable, MONITORED_QUOTES, fetch_exchange_rate
+    statuses = {}
+    for quote in MONITORED_QUOTES:
+        with SessionLocal() as db:
+            try:
+                fetch_exchange_rate(db, quote=quote)
+                statuses[quote] = True
+            except CurrentRateUnavailable:
+                db.rollback()
+                print(f"Today's CNY/{quote} reference rate is not published; history retained.")
+                statuses[quote] = "unavailable"
+            except Exception as exc:
+                db.rollback()
+                print(f"CNY/{quote} fetch failed ({type(exc).__name__}); saved history retained.")
+                statuses[quote] = False
+    return statuses
 
 
 def run_price_fetch(exchange_status=None):
