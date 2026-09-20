@@ -105,6 +105,14 @@ def render_exchange_chart(rows, quote="JPY"):
     if rows:
         dates = [datetime.combine(row.rate_date, datetime.min.time()) for row in rows]
         ax.plot(dates, [float(row.rate) for row in rows], marker="o", color="#2563eb")
+        for index, (observed_at, row) in enumerate(zip(dates, rows)):
+            above = index % 2 == 0
+            ax.annotate(f"{row.rate:.4f}", (observed_at, float(row.rate)),
+                        xytext=(0, 10 if above else -12), textcoords="offset points",
+                        ha="center", va="bottom" if above else "top", fontsize=9,
+                        color="#1d4ed8", annotation_clip=False,
+                        bbox=dict(facecolor="white", edgecolor="none", alpha=.85, pad=1))
+        ax.margins(y=.18)
         padding = max(timedelta(hours=12), (max(dates) - min(dates)) / 20)
         ax.set_xlim(min(dates) - padding, max(dates) + padding)
         ax.xaxis.set_major_locator(DayLocator(interval=max(1, ((max(dates) - min(dates)).days + 6) // 7)))
@@ -117,7 +125,9 @@ def render_exchange_chart(rows, quote="JPY"):
         ax.text(.5, .5, "最近 90 天暂无汇率记录", ha="center", transform=ax.transAxes)
         ax.set_axis_off()
     for text in fig.findobj(Text):
+        size = text.get_fontsize()
         text.set_fontproperties(font)
+        text.set_fontsize(size)
     output = BytesIO()
     fig.savefig(output, format="png", dpi=150)
     return output.getvalue()
