@@ -8,6 +8,17 @@ from app.services import email_report
 
 
 class EmailReportTests(unittest.TestCase):
+    def test_exchange_subscription_only_changes_requested_recipient(self):
+        route = SimpleNamespace(report_recipient='zhang@example.com,zhen@example.com')
+        with patch.object(email_report.settings, 'EMAIL_EXCHANGE_RECIPIENTS', 'zhang@example.com'), \
+             patch.object(email_report, 'send_price_report', return_value=True) as send:
+            email_report.send_scheduled_reports(MagicMock(), [route])
+        private = {call.kwargs['recipient']: call for call in send.call_args_list if 'recipient' in call.kwargs}
+        self.assertEqual(set(private), {'zhang@example.com', 'zhen@example.com'})
+        self.assertTrue(private['zhang@example.com'].kwargs['include_exchange'])
+        self.assertFalse(private['zhen@example.com'].kwargs['include_exchange'])
+        self.assertEqual(private['zhang@example.com'].args[1], [route])
+
     def test_shared_rome_route_is_merged_into_default_report(self):
         original = SimpleNamespace(report_recipient=None)
         rome = SimpleNamespace(report_recipient='first@example.com,second@example.com,zhen@example.com')

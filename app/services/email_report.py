@@ -234,8 +234,13 @@ def send_scheduled_reports(db, routes, exchange_status=None):
         else:
             default_routes.append(route)
     deliveries = [(default_routes, {})]
-    deliveries.extend((items, {"recipient": recipient, "include_exchange": False})
-                      for recipient, items in exclusive.items())
+    exchange_addresses = {address.lower() for _, address in getaddresses([settings.EMAIL_EXCHANGE_RECIPIENTS]) if address}
+    for recipient, items in exclusive.items():
+        groups = {}
+        for _, address in getaddresses([recipient]):
+            groups.setdefault(address.lower() in exchange_addresses, []).append(address)
+        for include_exchange, addresses in groups.items():
+            deliveries.append((items, {"recipient": ",".join(addresses), "include_exchange": include_exchange}))
     results = []
     for items, options in deliveries:
         try:

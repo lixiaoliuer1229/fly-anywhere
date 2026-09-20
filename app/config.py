@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     EMAIL_ENABLED: bool = False
     EMAIL_TO: str = ""  # Comma-separated recipient addresses
+    EMAIL_EXCHANGE_RECIPIENTS: str = ""  # Extra recipients whose flight reports include exchange rates
     SMTP_HOST: str = ""
     SMTP_PORT: int = 465
     SMTP_USERNAME: str = ""
