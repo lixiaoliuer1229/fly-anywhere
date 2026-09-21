@@ -16,6 +16,7 @@ class EmailReportTests(unittest.TestCase):
         private = {call.kwargs['recipient']: call for call in send.call_args_list if 'recipient' in call.kwargs}
         self.assertEqual(set(private), {'zhang@example.com', 'zhen@example.com'})
         self.assertTrue(private['zhang@example.com'].kwargs['include_exchange'])
+        self.assertEqual(private['zhang@example.com'].kwargs['exchange_quotes'], ('JPY',))
         self.assertFalse(private['zhen@example.com'].kwargs['include_exchange'])
         self.assertEqual(private['zhang@example.com'].args[1], [route])
 

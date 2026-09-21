@@ -138,7 +138,7 @@ def route_label(route):
     return f"{cities.get(route.departure_city, route.departure_city)} → {cities.get(route.arrival_city, route.arrival_city)}"
 
 
-def build_report(db, routes, exchange_status=None, *, recipient=None, include_exchange=True):
+def build_report(db, routes, exchange_status=None, *, recipient=None, include_exchange=True, exchange_quotes=None):
     message = EmailMessage()
     title = "机票与汇率走势日报" if include_exchange else "机票走势日报"
     message["Subject"] = f"{title} · {datetime.now():%Y-%m-%d}"
@@ -165,7 +165,7 @@ def build_report(db, routes, exchange_status=None, *, recipient=None, include_ex
                         f'<img src="cid:{cid[1:-1]}" alt="{escape(heading)}价格走势图" '
                         'style="display:block;width:100%;max-width:900px;height:auto;border:0">')
     if include_exchange:
-        for quote in MONITORED_QUOTES:
+        for quote in (MONITORED_QUOTES if exchange_quotes is None else exchange_quotes):
             currency_name = CURRENCY_NAMES[quote]
             pair_status = exchange_status.get(quote) if isinstance(exchange_status, dict) else exchange_status
             rows = exchange_history(db, quote)
@@ -194,7 +194,7 @@ def build_report(db, routes, exchange_status=None, *, recipient=None, include_ex
     return message
 
 
-def send_price_report(db, routes, exchange_status=None, *, recipient=None, include_exchange=True):
+def send_price_report(db, routes, exchange_status=None, *, recipient=None, include_exchange=True, exchange_quotes=None):
     if not settings.EMAIL_ENABLED:
         return False
     destination = settings.EMAIL_TO if recipient is None else recipient
@@ -202,7 +202,7 @@ def send_price_report(db, routes, exchange_status=None, *, recipient=None, inclu
         print("Email report skipped: configure EMAIL_TO, SMTP_HOST, SMTP_USERNAME and SMTP_PASSWORD.")
         return False
     message = build_report(db, routes, exchange_status=exchange_status,
-                           recipient=destination, include_exchange=include_exchange)
+                           recipient=destination, include_exchange=include_exchange, exchange_quotes=exchange_quotes)
     context = ssl.create_default_context()
     if settings.SMTP_SSL:
         client = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30, context=context)
@@ -240,7 +240,10 @@ def send_scheduled_reports(db, routes, exchange_status=None):
         for _, address in getaddresses([recipient]):
             groups.setdefault(address.lower() in exchange_addresses, []).append(address)
         for include_exchange, addresses in groups.items():
-            deliveries.append((items, {"recipient": ",".join(addresses), "include_exchange": include_exchange}))
+            options = {"recipient": ",".join(addresses), "include_exchange": include_exchange}
+            if include_exchange:
+                options["exchange_quotes"] = ("JPY",)
+            deliveries.append((items, options))
     results = []
     for items, options in deliveries:
         try:
