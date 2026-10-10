@@ -5,7 +5,6 @@ from app.models import Route
 
 
 MONITORED_ROUTES = (
-    ("CTU", "YVR", date(2027, 2, 5), date(2027, 2, 11), 6008),
     ("TFU", "OSL", date(2027, 2, 4), date(2027, 2, 11), 7292),
     ("CTU", "LHR", date(2027, 2, 5), date(2027, 2, 11), 7400),
 )

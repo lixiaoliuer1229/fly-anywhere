@@ -13,6 +13,7 @@ from sqlalchemy import func
 from app.config import settings
 from app.models import FlightOffer, SearchRun, ExchangeRate
 from app.services.exchange_rates import MONITORED_QUOTES
+from app.services.route_policy import is_canadian_route
 
 CURRENCY_NAMES = {"JPY": "日元", "CAD": "加元"}
 
@@ -219,6 +220,7 @@ def send_price_report(db, routes, exchange_status=None, *, recipient=None, inclu
 
 def send_scheduled_reports(db, routes, exchange_status=None):
     """Merge routes shared by all default recipients into their existing report."""
+    routes = [route for route in routes if not is_canadian_route(route)]
     default_routes = []
     exclusive = {}
     default_addresses = {address.lower() for _, address in getaddresses([settings.EMAIL_TO]) if address}

@@ -10,6 +10,7 @@ from app.models import FlightOffer as FlightOfferRecord, Route, SearchRun
 from app.schemas import FlightSearchCriteria
 from app.services.flight_search_agent import search_flight_prices_by_criteria
 from app.config import settings
+from app.services.route_policy import is_canadian_route
 
 
 def run_exchange_rate_fetch():
@@ -35,7 +36,8 @@ def run_price_fetch(exchange_status=None):
     """Fetch and persist prices for enabled, fully specified monitored routes."""
     db = SessionLocal()
     try:
-        routes = db.query(Route).filter(Route.enabled.is_(True)).all()
+        routes = [route for route in db.query(Route).filter(Route.enabled.is_(True)).all()
+                  if not is_canadian_route(route)]
         if not routes:
             print("No routes configured, skipping fetch.")
 
