@@ -9,7 +9,7 @@ from app.services import email_report
 
 class EmailReportTests(unittest.TestCase):
     def test_exchange_subscription_only_changes_requested_recipient(self):
-        route = SimpleNamespace(report_recipient='zhang@example.com,zhen@example.com')
+        route = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient='zhang@example.com,zhen@example.com')
         with patch.object(email_report.settings, 'EMAIL_EXCHANGE_RECIPIENTS', 'zhang@example.com'), \
              patch.object(email_report, 'send_price_report', return_value=True) as send:
             email_report.send_scheduled_reports(MagicMock(), [route])
@@ -21,9 +21,9 @@ class EmailReportTests(unittest.TestCase):
         self.assertEqual(private['zhang@example.com'].args[1], [route])
 
     def test_shared_rome_route_is_merged_into_default_report(self):
-        original = SimpleNamespace(report_recipient=None)
-        rome = SimpleNamespace(report_recipient='first@example.com,second@example.com,zhen@example.com')
-        private = SimpleNamespace(report_recipient='zhang@example.com,zhen@example.com')
+        original = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient=None)
+        rome = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient='first@example.com,second@example.com,zhen@example.com')
+        private = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient='zhang@example.com,zhen@example.com')
         with patch.object(email_report.settings, 'EMAIL_TO', 'first@example.com,second@example.com'), \
              patch.object(email_report, 'send_price_report', return_value=True) as send:
             email_report.send_scheduled_reports(MagicMock(), [original, rome, private])
@@ -35,9 +35,9 @@ class EmailReportTests(unittest.TestCase):
         self.assertEqual(send.call_args_list[2].kwargs['recipient'], 'zhang@example.com,zhen@example.com')
 
     def test_exclusive_routes_never_enter_default_report(self):
-        default = SimpleNamespace(report_recipient=None)
-        private = SimpleNamespace(report_recipient='private@example.com')
-        other = SimpleNamespace(report_recipient='other@example.com')
+        default = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient=None)
+        private = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient='private@example.com')
+        other = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient='other@example.com')
         db = MagicMock()
         with patch.object(email_report, 'send_price_report', side_effect=[RuntimeError('failed'), True, True]) as send:
             results = email_report.send_scheduled_reports(db, [default, private, other], exchange_status=True)
@@ -91,7 +91,7 @@ class EmailReportTests(unittest.TestCase):
              patch.object(email_report, 'render_exchange_chart', return_value=b'png'):
             message = email_report.build_report(db, [route])
         images = [p for p in message.walk() if p.get_content_type() == 'image/png']
-        self.assertEqual(len(images), 3)
+        self.assertEqual(len(images), 2)
         self.assertEqual(images[0].get_content_disposition(), 'inline')
         self.assertIsNone(images[0].get_filename())
         self.assertFalse(any(p.get_content_disposition() == 'attachment' for p in message.walk()))
@@ -99,7 +99,7 @@ class EmailReportTests(unittest.TestCase):
         self.assertIn('cid:' + images[0]['Content-ID'][1:-1], html)
         self.assertIn('成都双流', html)
         self.assertIn('人民币 / 日元汇率', html)
-        self.assertIn('人民币 / 加元汇率', html)
+        self.assertNotIn('人民币 / 加元汇率', html)
         self.assertIn('暂无汇率记录', html)
         for image in images:
             self.assertIn('cid:' + image['Content-ID'][1:-1], html)
@@ -126,18 +126,24 @@ class EmailReportTests(unittest.TestCase):
             self.assertIn('100 日元 = 5.0000 人民币', content)
             self.assertIn('2026-09-10', content)
 
-    def test_cad_status_and_plain_text_are_independent(self):
+    def test_scheduled_report_excludes_canadian_route(self):
+        canada = SimpleNamespace(departure_city='CTU', arrival_city='YVR', report_recipient=None)
+        other = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient=None)
+        with patch.object(email_report, 'send_price_report', return_value=True) as send:
+            email_report.send_scheduled_reports(MagicMock(), [canada, other])
+        self.assertEqual(send.call_args.args[1], [other])
+
+    def test_report_contains_jpy_but_not_cad(self):
         db = MagicMock()
         db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
-        with patch.object(email_report, 'exchange_history', return_value=[]), \
+        with patch.object(email_report, 'exchange_history', return_value=[]) as history, \
              patch.object(email_report, 'render_exchange_chart', return_value=b'png'):
-            message = email_report.build_report(db, [], exchange_status={'JPY': True, 'CAD':'unavailable'})
+            message = email_report.build_report(db, [], exchange_status={'JPY': True})
+        history.assert_called_once_with(db, 'JPY')
         for body in ('plain', 'html'):
             content = message.get_body(preferencelist=(body,)).get_content()
-            self.assertIn('人民币 / 加元汇率', content)
-            cad = content.split('人民币 / 加元汇率')[1]
-            self.assertIn('当天汇率尚未发布', cad)
-            self.assertNotIn('本轮已获取', cad)
+            self.assertIn('人民币 / 日元汇率', content)
+            self.assertNotIn('人民币 / 加元汇率', content)
 
     def test_missing_credentials_does_not_connect(self):
         with patch.object(email_report.settings, 'EMAIL_ENABLED', True), \

@@ -30,7 +30,8 @@ class ExchangeRateTests(unittest.TestCase):
         self.response = Mock(status_code=200)
         self.response.json.return_value = dict(base='CNY', quote='JPY', rate=20, date='2026-09-10')
         self.http = patch('app.services.exchange_rates.httpx.Client')
-        self.http.start().return_value.__enter__.return_value.get.return_value = self.response
+        self.http_client = self.http.start()
+        self.http_client.return_value.__enter__.return_value.get.return_value = self.response
 
     def tearDown(self):
         self.http.stop()
@@ -109,23 +110,15 @@ class ExchangeRateTests(unittest.TestCase):
             self.assertEqual(quote_today(), date(2026, 9, 11))
             clock.now.assert_called_once_with(ZoneInfo('Asia/Shanghai'))
 
-    def test_cad_and_jpy_are_stored_separately(self):
-        fetch_exchange_rate(self.db)
-        self.response.json.return_value.update(quote='CAD', rate=0.19)
-        fetch_exchange_rate(self.db, quote='CAD')
-        self.assertEqual(self.db.query(ExchangeRate).count(), 2)
-        self.assertEqual(self.db.query(ExchangeRate).filter_by(quote='CAD').one().rate, Decimal('0.19'))
-        self.assertEqual(self.db.query(ExchangeRate).filter_by(quote='JPY').one().rate, Decimal('20'))
-        from app.services.email_report import exchange_history
-        with patch('app.services.email_report.datetime') as clock:
-            from datetime import datetime, timezone
-            clock.now.return_value = datetime(2026, 9, 10, tzinfo=timezone.utc)
-            self.assertEqual([r.quote for r in exchange_history(self.db, 'CAD')], ['CAD'])
+    def test_cad_is_rejected_without_network_request(self):
+        with self.assertRaises(ValueError):
+            fetch_exchange_rate(self.db, quote='CAD')
+        self.http_client.assert_not_called()
 
-    def test_pair_failure_does_not_skip_other_pair(self):
-        from app.services.exchange_rates import CurrentRateUnavailable
+    def test_schedule_fetches_jpy_only(self):
         with patch('app.services.scheduler.SessionLocal', self.sessions), \
-             patch('app.services.exchange_rates.fetch_exchange_rate', side_effect=[CurrentRateUnavailable(), None]) as fetch:
+             patch('app.services.exchange_rates.fetch_exchange_rate') as fetch:
             statuses = run_exchange_rate_fetch()
-        self.assertEqual(statuses, {'JPY':'unavailable', 'CAD':True})
-        self.assertEqual(fetch.call_args_list[1].kwargs['quote'], 'CAD')
+        self.assertEqual(statuses, {'JPY': True})
+        fetch.assert_called_once()
+        self.assertEqual(fetch.call_args.kwargs['quote'], 'JPY')

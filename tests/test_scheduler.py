@@ -22,3 +22,17 @@ class DailyScheduleTests(unittest.TestCase):
             run_price_fetch(exchange_status=False)
         send.assert_called_once_with(db, [], exchange_status=False)
         db.close.assert_called_once()
+
+    def test_canadian_route_is_not_searched_or_sent(self):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        from app.services.scheduler import run_price_fetch
+        db = MagicMock()
+        canada = SimpleNamespace(departure_city='CTU', arrival_city='YVR')
+        db.query.return_value.filter.return_value.all.return_value = [canada]
+        with patch('app.services.scheduler.SessionLocal', return_value=db), \
+             patch('app.services.scheduler.search_flight_prices_by_criteria') as search, \
+             patch('app.services.email_report.send_scheduled_reports') as send:
+            run_price_fetch()
+        search.assert_not_called()
+        send.assert_called_once_with(db, [], exchange_status=None)
