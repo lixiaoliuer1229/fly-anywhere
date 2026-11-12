@@ -36,3 +36,12 @@ class DailyScheduleTests(unittest.TestCase):
             run_price_fetch()
         search.assert_not_called()
         send.assert_called_once_with(db, [], exchange_status=None)
+
+    def test_canadian_airport_and_city_codes(self):
+        from types import SimpleNamespace
+        from app.services.route_policy import is_canadian_route
+        for code in ('YVR', 'ylw', ' YTO ', 'YMQ', 'YEA'):
+            with self.subTest(code=code):
+                self.assertTrue(is_canadian_route(SimpleNamespace(departure_city='CTU', arrival_city=code)))
+                self.assertTrue(is_canadian_route(SimpleNamespace(departure_city=code, arrival_city='CTU')))
+        self.assertFalse(is_canadian_route(SimpleNamespace(departure_city='CTU', arrival_city='JFK')))
