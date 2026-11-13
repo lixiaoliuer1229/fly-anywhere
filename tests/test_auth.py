@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -9,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.main import app
 from app.models import User, UserSession
+from app.routers import auth
 from app.routers.auth import COOKIE, verify_password
 
 
@@ -22,6 +24,10 @@ class AuthTests(unittest.TestCase):
                 yield db
         app.dependency_overrides[get_db] = database
         self.client = TestClient(app)
+        self.addCleanup(auth.login_attempts.clear)
+        registration = patch.object(auth.settings, 'AUTH_ALLOW_REGISTRATION', True)
+        registration.start()
+        self.addCleanup(registration.stop)
         self.credentials = {'username': 'Test_User', 'password': 'safe-password123'}
 
     def tearDown(self):
@@ -70,6 +76,25 @@ class AuthTests(unittest.TestCase):
         self.client.cookies.clear()
         self.client.cookies.set(COOKIE, 'forged-token')
         self.assertEqual(self.client.get('/api/auth/me').status_code, 401)
+
+    def test_registration_closed(self):
+        with patch.object(auth.settings, 'AUTH_ALLOW_REGISTRATION', False):
+            self.assertEqual(self.register().status_code, 403)
+            self.assertNotIn('id="switch"', self.client.get('/login').text)
+        with self.session() as db:
+            self.assertEqual(db.query(User).count(), 0)
+
+    def test_login_limit_expires(self):
+        self.register()
+        bad = {**self.credentials, 'password': 'wrong-password'}
+        with patch.object(auth, 'monotonic', return_value=100) as clock:
+            for _ in range(auth.LOGIN_LIMIT):
+                self.assertEqual(self.client.post('/api/auth/login', json=bad).status_code, 401)
+            blocked = self.client.post('/api/auth/login', json=self.credentials)
+            self.assertEqual(blocked.status_code, 429)
+            self.assertEqual(blocked.headers['Retry-After'], str(auth.LOGIN_WINDOW))
+            clock.return_value += auth.LOGIN_WINDOW
+            self.assertEqual(self.client.post('/api/auth/login', json=self.credentials).status_code, 200)
 
     def test_login_rotates_session(self):
         self.register()

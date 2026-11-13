@@ -13,12 +13,13 @@
 <label for="username">账号</label><input id="username" name="username" autocomplete="username" required minlength="3" maxlength="64" pattern="[a-zA-Z0-9_\-]+" autofocus><small>3–64 位字母、数字、下划线或短横线</small>
 <label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="128"><small>8–128 个字符</small>
 <div id="error" role="alert" aria-live="polite"></div><button class="submit" id="submit" type="submit">登录</button>
-</form><button class="switch" id="switch" type="button">没有账号？注册账号</button>
+</form>{% if allow_registration %}<button class="switch" id="switch" type="button">没有账号？注册账号</button>{% endif %}
 </main>
 <script>
 let registering = false;
 const form = document.getElementById('auth-form'), submit = document.getElementById('submit'), error = document.getElementById('error');
-document.getElementById('switch').onclick = () => {
+const switchButton = document.getElementById('switch');
+if (switchButton) switchButton.onclick = () => {
     registering = !registering;
     document.getElementById('title').textContent = registering ? '注册账号' : '登录 AI 机票搜索';
     submit.textContent = registering ? '注册并登录' : '登录';

@@ -8,6 +8,7 @@ from sqlalchemy import text
 from starlette.requests import Request
 
 from app.database import engine
+from app.config import settings
 from app.routers import ai_search, flights, prices, auth, exchange_rates
 from app.routers.auth import current_user
 from app.services.scheduler import start_scheduler
@@ -58,4 +59,4 @@ async def http_error(request: Request, exc: HTTPException):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("login.html", {"request": request, "allow_registration": settings.AUTH_ALLOW_REGISTRATION})

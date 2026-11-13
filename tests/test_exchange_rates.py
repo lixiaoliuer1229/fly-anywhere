@@ -42,7 +42,9 @@ class ExchangeRateTests(unittest.TestCase):
         self.engine.dispose()
 
     def login(self):
-        self.client.post('/api/auth/register', json={'username':'fx_test', 'password':'safe-password123'})
+        with patch('app.routers.auth.settings.AUTH_ALLOW_REGISTRATION', True):
+            response = self.client.post('/api/auth/register', json={'username':'fx_test', 'password':'safe-password123'})
+        self.assertEqual(response.status_code, 201)
 
     def test_auth_empty_fetch_history_and_inverse(self):
         self.assertEqual(self.client.get('/api/exchange-rates').status_code, 401)

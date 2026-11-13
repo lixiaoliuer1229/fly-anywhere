@@ -2,7 +2,11 @@
 import hashlib
 import hmac
 import secrets
+from collections import OrderedDict
 from datetime import datetime, timedelta
+from math import ceil
+from threading import Lock
+from time import monotonic
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
@@ -16,6 +20,37 @@ from app.models import User, UserSession
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 COOKIE = "fly_session"
 SESSION_SECONDS = 7 * 24 * 60 * 60
+LOGIN_WINDOW = 60
+LOGIN_LIMIT = 10
+LOGIN_CLIENT_LIMIT = 4096
+# shortcut: one app process shares these counters; use shared storage when adding workers.
+login_attempts: OrderedDict[str, tuple[float, int]] = OrderedDict()
+login_lock = Lock()
+
+
+def limit_login(request: Request):
+    address = request.client.host if request.client else "unknown"
+    with login_lock:
+        now = monotonic()
+        while login_attempts:
+            oldest = next(iter(login_attempts))
+            if login_attempts[oldest][0] > now:
+                break
+            login_attempts.popitem(last=False)
+
+        if address not in login_attempts and len(login_attempts) >= LOGIN_CLIENT_LIMIT:
+            expires, attempts = next(iter(login_attempts.values()))[0], LOGIN_LIMIT
+        else:
+            expires, attempts = login_attempts.get(address, (now + LOGIN_WINDOW, 0))
+        if attempts >= LOGIN_LIMIT:
+            raise HTTPException(429, "登录尝试过多，请稍后再试",
+                                headers={"Retry-After": str(ceil(expires - now))})
+        login_attempts[address] = (expires, attempts + 1)
+
+
+def require_registration():
+    if not settings.AUTH_ALLOW_REGISTRATION:
+        raise HTTPException(403, "注册已关闭")
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -79,7 +114,7 @@ def start_session(user: User, request: Request, response: Response, db: Session)
     return {"id": user.id, "username": user.username}
 
 
-@router.post("/register", status_code=201, dependencies=[Depends(check_origin)])
+@router.post("/register", status_code=201, dependencies=[Depends(check_origin), Depends(require_registration)])
 def register(data: Credentials, request: Request, response: Response, db: Session = Depends(get_db)):
     user = User(username=data.username, password_hash=hash_password(data.password))
     db.add(user)
@@ -91,7 +126,7 @@ def register(data: Credentials, request: Request, response: Response, db: Sessio
     return start_session(user, request, response, db)
 
 
-@router.post("/login", dependencies=[Depends(check_origin)])
+@router.post("/login", dependencies=[Depends(check_origin), Depends(limit_login)])
 def login(data: Credentials, request: Request, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter_by(username=data.username).first()
     valid = verify_password(data.password, user.password_hash if user else DUMMY_HASH)
