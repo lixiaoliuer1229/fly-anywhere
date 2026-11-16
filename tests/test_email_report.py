@@ -9,7 +9,7 @@ from app.services import email_report
 
 class EmailReportTests(unittest.TestCase):
     def test_exchange_subscription_only_changes_requested_recipient(self):
-        route = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient='zhang@example.com,zhen@example.com')
+        route = SimpleNamespace(departure_city='CTU', arrival_city='OSL', report_recipient='zhang@example.com,zhen@example.com')
         with patch.object(email_report.settings, 'EMAIL_EXCHANGE_RECIPIENTS', 'zhang@example.com'), \
              patch.object(email_report, 'send_price_report', return_value=True) as send:
             email_report.send_scheduled_reports(MagicMock(), [route])
@@ -21,9 +21,9 @@ class EmailReportTests(unittest.TestCase):
         self.assertEqual(private['zhang@example.com'].args[1], [route])
 
     def test_shared_rome_route_is_merged_into_default_report(self):
-        original = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient=None)
-        rome = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient='first@example.com,second@example.com,zhen@example.com')
-        private = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient='zhang@example.com,zhen@example.com')
+        original = SimpleNamespace(departure_city='CTU', arrival_city='OSL', report_recipient=None)
+        rome = SimpleNamespace(departure_city='CTU', arrival_city='OSL', report_recipient='first@example.com,second@example.com,zhen@example.com')
+        private = SimpleNamespace(departure_city='CTU', arrival_city='OSL', report_recipient='zhang@example.com,zhen@example.com')
         with patch.object(email_report.settings, 'EMAIL_TO', 'first@example.com,second@example.com'), \
              patch.object(email_report, 'send_price_report', return_value=True) as send:
             email_report.send_scheduled_reports(MagicMock(), [original, rome, private])
@@ -35,9 +35,9 @@ class EmailReportTests(unittest.TestCase):
         self.assertEqual(send.call_args_list[2].kwargs['recipient'], 'zhang@example.com,zhen@example.com')
 
     def test_exclusive_routes_never_enter_default_report(self):
-        default = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient=None)
-        private = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient='private@example.com')
-        other = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient='other@example.com')
+        default = SimpleNamespace(departure_city='CTU', arrival_city='OSL', report_recipient=None)
+        private = SimpleNamespace(departure_city='CTU', arrival_city='OSL', report_recipient='private@example.com')
+        other = SimpleNamespace(departure_city='CTU', arrival_city='OSL', report_recipient='other@example.com')
         db = MagicMock()
         with patch.object(email_report, 'send_price_report', side_effect=[RuntimeError('failed'), True, True]) as send:
             results = email_report.send_scheduled_reports(db, [default, private, other], exchange_status=True)
@@ -126,11 +126,13 @@ class EmailReportTests(unittest.TestCase):
             self.assertIn('100 日元 = 5.0000 人民币', content)
             self.assertIn('2026-09-10', content)
 
-    def test_scheduled_report_excludes_canadian_route(self):
+    def test_scheduled_report_excludes_canada_and_london(self):
         canada = SimpleNamespace(departure_city='CTU', arrival_city='YVR', report_recipient=None)
-        other = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient=None)
+        london = SimpleNamespace(departure_city='CTU', arrival_city='LHR', report_recipient='private@example.com')
+        other = SimpleNamespace(departure_city='CTU', arrival_city='OSL', report_recipient=None)
         with patch.object(email_report, 'send_price_report', return_value=True) as send:
-            email_report.send_scheduled_reports(MagicMock(), [canada, other])
+            email_report.send_scheduled_reports(MagicMock(), [canada, london, other])
+        send.assert_called_once()
         self.assertEqual(send.call_args.args[1], [other])
 
     def test_report_contains_jpy_but_not_cad(self):
