@@ -30,9 +30,8 @@ def price_history(db, route_id):
             .order_by(SearchRun.started_at).all())
 
 
-def render_chart(route, rows):
-    # Contract: 90-day observed CNY minimum per search;
-    # Connect observations when available; no data uses an explicit empty state.
+def render_chart(series):
+    # Each series uses the minimum CNY price from its own searches.
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.dates import AutoDateLocator, DateFormatter
@@ -40,40 +39,53 @@ def render_chart(route, rows):
     from matplotlib.text import Text
 
     font = FontProperties(fname=str(Path(__file__).resolve().parents[1] / "assets/fonts/NotoSansSC-Regular.otf"))
-
-    rows = [row for row in rows if row.currency == "CNY"]
-    currencies = sorted({row.currency for row in rows})
-    fig = Figure(figsize=(10, 3.8 * max(1, len(currencies))), layout="constrained")
+    route = series[0][0]
+    fig = Figure(figsize=(10, 3.8), layout="constrained")
     FigureCanvasAgg(fig)
-    axes = fig.subplots(max(1, len(currencies)), 1, squeeze=False).ravel()
-    fig.suptitle(f"{route_label(route)}价格走势\n去程：{route.departure_date}　返程：{route.return_date}", fontsize=16)
-    for ax, currency in zip(axes, currencies):
-        points = [r for r in rows if r.currency == currency]
-        ax.plot([r.started_at for r in points], [float(r.price) for r in points],
-                marker="o", linestyle="-", color="#2563eb")
-        for index, point in enumerate(points):
-            label = f"{point.price:,.2f}".rstrip("0").rstrip(".")
-            above = index % 2 == 0
-            ax.annotate(label, (point.started_at, float(point.price)),
+    ax = fig.subplots()
+    compared = len(series) > 1
+    dates_label = f"去程：{route.departure_date}"
+    if not compared and route.return_date:
+        dates_label += f"　返程：{route.return_date}"
+    fig.suptitle(f"{route_label(route)}价格走势\n{dates_label}", fontsize=16)
+
+    colors = ("#2563eb", "#c2410c", "#0f766e", "#7e22ce")
+    dates = []
+    for index, (itinerary, rows) in enumerate(series):
+        points = [row for row in rows if row.currency == "CNY"]
+        observed_at = [point.started_at for point in points]
+        dates.extend(observed_at)
+        label = f"返程 {itinerary.return_date}" if itinerary.return_date else "单程"
+        if not points:
+            label += "（暂无报价）"
+        color = colors[index % len(colors)]
+        ax.plot(observed_at, [float(point.price) for point in points],
+                marker=("o", "s")[index % 2], linestyle="-", color=color, label=label)
+        for point_index, point in enumerate(points):
+            price = f"{point.price:,.2f}".rstrip("0").rstrip(".")
+            above = (index + point_index) % 2 == 0
+            ax.annotate(price, (point.started_at, float(point.price)),
                         xytext=(0, 10 if above else -12), textcoords="offset points",
                         ha="center", va="bottom" if above else "top", fontsize=9,
-                        color="#1d4ed8", annotation_clip=False,
+                        color=color, annotation_clip=False,
                         bbox=dict(facecolor="white", edgecolor="none", alpha=.85, pad=1))
+
+    if compared:
+        ax.legend(loc="upper left", fontsize=9)
+    if dates:
         ax.margins(y=.18)
-        ax.set_title(f"近 90 天每次查询的最低参考价 · 共 {len(points)} 个观测点", fontsize=10)
-        ax.set_ylabel("价格（" + {"CNY": "人民币元", "USD": "美元", "CAD": "加元", "GBP": "英镑", "EUR": "欧元", "NOK": "挪威克朗"}.get(currency, currency) + "）")
+        ax.set_title(f"近 90 天每次查询的最低参考价 · 共 {len(dates)} 个观测点", fontsize=10)
+        ax.set_ylabel("价格（人民币元）")
         ax.set_xlabel("查询时间")
-        dates = [r.started_at for r in points]
         padding = max(timedelta(hours=12), (max(dates) - min(dates)) / 20)
         ax.set_xlim(min(dates) - padding, max(dates) + padding)
-        locator = AutoDateLocator()
-        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_locator(AutoDateLocator())
         ax.xaxis.set_major_formatter(DateFormatter("%m月%d日\n%H:%M"))
         ax.grid(axis="y", color="#e5e7eb")
         ax.spines[["top", "right"]].set_visible(False)
-    if not currencies:
-        axes[0].text(.5, .5, "最近 90 天暂无有效人民币报价", ha="center", transform=axes[0].transAxes)
-        axes[0].set_axis_off()
+    else:
+        ax.text(.5, .5, "最近 90 天暂无有效人民币报价", ha="center", transform=ax.transAxes)
+        ax.set_axis_off()
     for text in fig.findobj(Text):
         size = text.get_fontsize()
         text.set_fontproperties(font)
@@ -135,7 +147,7 @@ def render_exchange_chart(rows, quote="JPY"):
 
 
 def route_label(route):
-    cities = {"CTU": "成都双流", "TFU": "成都天府", "YVR": "温哥华", "OSL": "奥斯陆", "LHR": "伦敦希思罗", "MIL": "米兰", "PVG": "上海浦东", "FCO": "罗马 Fiumicino"}
+    cities = {"CTU": "成都双流", "TFU": "成都天府", "YVR": "温哥华", "OSL": "奥斯陆", "LHR": "伦敦希思罗", "MIL": "米兰", "PVG": "上海浦东", "FCO": "罗马 Fiumicino", "BNE": "布里斯班", "CNS": "凯恩斯"}
     return f"{cities.get(route.departure_city, route.departure_city)} → {cities.get(route.arrival_city, route.arrival_city)}"
 
 
@@ -150,20 +162,34 @@ def build_report(db, routes, exchange_status=None, *, recipient=None, include_ex
     sections = []
     images = []
     statuses = {"completed": "已完成", "failed": "失败", "running": "查询中"}
+    groups = {}
     for route in routes:
-        latest = (db.query(SearchRun).filter(SearchRun.route_id == route.id)
-                  .order_by(SearchRun.started_at.desc()).first())
-        heading = f"{route_label(route)}（{route.departure_date} 至 {route.return_date}）"
-        status = (f"最近查询：{latest.started_at}，状态：{statuses.get(latest.status, latest.status)}"
-                  if latest else "暂无查询记录")
-        warning = f"提示：{latest.warning}" if latest and latest.warning else ""
-        lines.extend([heading, status, warning])
+        key = (route.departure_city.strip().upper(), route.arrival_city.strip().upper(), route.departure_date)
+        groups.setdefault(key, []).append(route)
+    for options in groups.values():
+        options.sort(key=lambda route: (route.return_date is None, route.return_date))
+        route = options[0]
+        heading = f"{route_label(route)}（去程 {route.departure_date}）"
+        lines.append(heading)
+        details = []
+        series = []
+        for itinerary in options:
+            latest = (db.query(SearchRun).filter(SearchRun.route_id == itinerary.id)
+                      .order_by(SearchRun.started_at.desc()).first())
+            label = f"返程 {itinerary.return_date}" if itinerary.return_date else "单程"
+            status = (f"最近查询：{latest.started_at}，状态：{statuses.get(latest.status, latest.status)}"
+                      if latest else "暂无查询记录")
+            detail = f"{label} · {status}"
+            if latest and latest.warning:
+                detail += f" · 提示：{latest.warning}"
+            lines.append(detail)
+            details.append(f'<p style="color:#555">{escape(detail)}</p>')
+            series.append((itinerary, price_history(db, itinerary.id)))
         cid = make_msgid(domain="fly-anywhere.local")
-        images.append((cid, render_chart(route, price_history(db, route.id))))
+        images.append((cid, render_chart(series)))
         sections.append(f'<h2 style="font-size:18px;margin-top:28px">{escape(heading)}</h2>'
-                        f'<p style="color:#555">{escape(status)}</p>'
-                        f'<p>{escape(warning)}</p>'
-                        f'<img src="cid:{cid[1:-1]}" alt="{escape(heading)}价格走势图" '
+                        + "".join(details)
+                        + f'<img src="cid:{cid[1:-1]}" alt="{escape(heading)}价格走势图" '
                         'style="display:block;width:100%;max-width:900px;height:auto;border:0">')
     if include_exchange:
         for quote in (MONITORED_QUOTES if exchange_quotes is None else exchange_quotes):

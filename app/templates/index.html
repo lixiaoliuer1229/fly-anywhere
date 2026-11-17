@@ -153,7 +153,7 @@
             LHR:'伦敦希思罗机场', LGW:'伦敦盖特威克机场', LON:'伦敦（城市）', FRA:'法兰克福机场',
             AMS:'阿姆斯特丹史基浦机场', FCO:'罗马菲乌米奇诺机场', MXP:'米兰马尔彭萨机场',
             OSL:'奥斯陆加勒穆恩机场', YVR:'温哥华国际机场', YYZ:'多伦多皮尔逊国际机场',
-            JFK:'纽约肯尼迪国际机场', LAX:'洛杉矶国际机场', SFO:'旧金山国际机场'
+            BNE:'布里斯班机场', CNS:'凯恩斯机场', JFK:'纽约肯尼迪国际机场', LAX:'洛杉矶国际机场', SFO:'旧金山国际机场'
         };
         function airportLabel(value) {
             const code = String(value ?? '').toUpperCase();
@@ -220,21 +220,21 @@
                     aiPriceChart.setOption({title: {text: '暂无 AI 价格历史', subtext: '完成联网查询后将在这里形成趋势', left: 'center', top: 'center'}});
                     return;
                 }
-                const timestamps = [...new Set(data.series.flatMap(s => s.points.map(p => p.searched_at)))].sort();
                 aiPriceChart.setOption({
                     title: {text: departure && arrival ? `${airportLabel(departure)} → ${airportLabel(arrival)}` : 'AI 搜索最低参考价', left: 'center'},
-                    tooltip: {trigger: 'axis'},
+                    tooltip: {trigger: 'item'},
                     legend: {top: 30, type: 'scroll'},
                     grid: {left: 70, right: 30, bottom: 60, top: 75},
-                    xAxis: {type: 'category', data: timestamps.map(t => new Date(t).toLocaleString()), axisLabel: {rotate: 25}},
+                    xAxis: {type: 'time', axisLabel: {rotate: 25}},
                     yAxis: {type: 'value', name: '参考价', scale: true},
                     series: data.series.map(s => {
-                        const values = new Map(s.points.map(p => [p.searched_at, p.min_price]));
+                        const dates = [s.departure_date && `去程 ${s.departure_date}`,
+                                       s.return_date && `返程 ${s.return_date}`].filter(Boolean).join(' · ');
+                        const label = `${airportLabel(s.departure)} → ${airportLabel(s.arrival)}`;
                         return {
-                            name: `${airportLabel(s.departure)} → ${airportLabel(s.arrival)} (${s.currency})`,
+                            name: `${label}${dates ? ' · ' + dates : ''} (${s.currency})`,
                             type: 'line',
-                            data: timestamps.map(t => values.has(t) ? values.get(t) : null),
-                            connectNulls: false,
+                            data: s.points.map(p => [new Date(p.searched_at).getTime(), p.min_price]),
                             smooth: false,
                             symbol: 'circle',
                             symbolSize: 7,

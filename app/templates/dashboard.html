@@ -142,7 +142,7 @@
             LHR:'伦敦希思罗机场', LGW:'伦敦盖特威克机场', LON:'伦敦（城市）', FRA:'法兰克福机场',
             AMS:'阿姆斯特丹史基浦机场', FCO:'罗马菲乌米奇诺机场', MXP:'米兰马尔彭萨机场',
             OSL:'奥斯陆加勒穆恩机场', YVR:'温哥华国际机场', YYZ:'多伦多皮尔逊国际机场',
-            JFK:'纽约肯尼迪国际机场', LAX:'洛杉矶国际机场', SFO:'旧金山国际机场'
+            BNE:'布里斯班机场', CNS:'凯恩斯机场', JFK:'纽约肯尼迪国际机场', LAX:'洛杉矶国际机场', SFO:'旧金山国际机场'
         };
         const airportLabel = value => { const code=String(value??'').toUpperCase(); return airportNames[code]?`${airportNames[code]}（${code}）`:value; };
         const fmtMoney = (value, currency='CNY') => value == null ? '—' : new Intl.NumberFormat('zh-CN',{style:'currency',currency,maximumFractionDigits:0}).format(value);
@@ -156,29 +156,59 @@
         const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         async function getJson(url) { const r=await fetch(url); const d=await r.json(); if(!r.ok) throw new Error(d.detail||`请求失败 (${r.status})`); return d; }
 
-        function renderChart(data,routes) {
+        function renderChart(data) {
             document.getElementById('pointCount').textContent=data.total_points;
             document.getElementById('trendNote').textContent=data.note;
             trendCharts.forEach(item=>item.dispose());
             trendCharts=[];
             const container=document.getElementById('trendCharts');
             if(!data.series.length){ container.innerHTML='<div class="empty">暂无 AI 报价历史，请先在搜索页完成查询</div>'; return; }
-            container.innerHTML=data.series.map((series,index)=>{
-                const first=series.points[0]?.min_price;
-                const latest=series.points.at(-1)?.min_price;
-                const change=first==null||latest==null?null:latest-first;
-                const changeClass=change>0?'up':change<0?'down':'';
-                const changeText=change==null?'暂无变化':change===0?'持平':`${change>0?'上涨':'下降'} ${fmtMoney(Math.abs(change),series.currency)}`;
-                const route=routes.find(item=>item.departure_city.toUpperCase()===series.departure.toUpperCase()&&item.arrival_city.toUpperCase()===series.arrival.toUpperCase());
-                return `<article class="trend-card"><div class="trend-title">${esc(airportLabel(series.departure))} → ${esc(airportLabel(series.arrival))}</div><div class="trend-meta">${esc(tripDates(route))} · ${esc(series.currency)} · ${series.points.length} 个价格观测点</div><div class="trend-summary"><span class="trend-price">${fmtMoney(latest,series.currency)}</span><span class="trend-change ${changeClass}">${changeText}</span></div><div class="trend-chart" id="routeTrend${index}"></div></article>`;
+            const groups = new Map();
+            for (const series of data.series) {
+                const key = JSON.stringify([series.departure, series.arrival, series.currency, series.departure_date]);
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(series);
+            }
+            const cards = [...groups.values()];
+            container.innerHTML = cards.map((series, index) => {
+                const {departure, arrival, departure_date, currency} = series[0];
+                const pointCount = series.reduce((sum, item) => sum + item.points.length, 0);
+                const routeDates = series.length === 1 && series[0].return_date
+                    ? `去程 ${fmtTravelDate(departure_date)} → 返程 ${fmtTravelDate(series[0].return_date)}`
+                    : departure_date ? `去程 ${fmtTravelDate(departure_date)}` : '日期未指定';
+                const points = series[0].points;
+                const latest = points.at(-1).min_price;
+                const change = latest - points[0].min_price;
+                const changeClass = change > 0 ? 'up' : change < 0 ? 'down' : '';
+                const changeText = change === 0 ? '持平' : `${change > 0 ? '上涨' : '下降'} ${fmtMoney(Math.abs(change), currency)}`;
+                const summary = series.length === 1 ? `<div class="trend-summary"><span class="trend-price">${fmtMoney(latest, currency)}</span><span class="trend-change ${changeClass}">${changeText}</span></div>` : '';
+                return `<article class="trend-card"><div class="trend-title">${esc(airportLabel(departure))} → ${esc(airportLabel(arrival))}</div><div class="trend-meta">${routeDates} · ${esc(currency)} · ${pointCount} 个价格观测点</div>${summary}<div class="trend-chart" id="routeTrend${index}"></div></article>`;
             }).join('');
-            data.series.forEach((series,index)=>{
-                const routeChart=echarts.init(document.getElementById(`routeTrend${index}`));
-                const prices=series.points.map(point=>point.min_price);
-                const spread=Math.max(...prices)-Math.min(...prices);
-                const padding=Math.max(50,spread*.2);
-                const lineColor=prices.at(-1)>prices[0]?'#dc5864':prices.at(-1)<prices[0]?'#0b9b72':'#5367e8';
-                routeChart.setOption({color:[lineColor],tooltip:{trigger:'axis',formatter:items=>{const point=series.points[items[0].dataIndex];return `${fmtDate(point.searched_at)}<br/><strong>${fmtMoney(point.min_price,series.currency)}</strong><br/>可确认报价 ${point.offer_count} 条`}},grid:{left:70,right:24,top:32,bottom:48},xAxis:{type:'category',boundaryGap:false,data:series.points.map(point=>fmtDate(point.searched_at)),axisLabel:{rotate:24,color:'#7b8394',fontSize:10},axisLine:{lineStyle:{color:'#dde1ea'}}},yAxis:{type:'value',scale:true,min:value=>Math.max(0,Math.floor(value.min-padding)),max:value=>Math.ceil(value.max+padding),splitLine:{lineStyle:{color:'#edf0f5'}},axisLabel:{color:'#7b8394',fontSize:10,formatter:value=>`¥${value.toLocaleString()}`}},series:[{name:'最低参考价',type:'line',smooth:.2,symbol:'circle',symbolSize:8,data:prices,label:{show:true,position:'top',color:lineColor,fontSize:10,formatter:item=>fmtMoney(item.value,series.currency)},lineStyle:{width:3,color:lineColor},itemStyle:{color:'#fff',borderColor:lineColor,borderWidth:3},areaStyle:{color:lineColor,opacity:.08}}]});
+            cards.forEach((series, index) => {
+                const routeChart = echarts.init(document.getElementById(`routeTrend${index}`));
+                const options = [...series].sort((a, b) => (a.return_date || '').localeCompare(b.return_date || ''));
+                const compared = options.length > 1;
+                routeChart.setOption({
+                    color: ['#2563eb', '#c2410c', '#0f766e', '#7e22ce'],
+                    legend: {show: compared, type: 'scroll'},
+                    tooltip: {trigger: 'item', renderMode: 'richText', formatter: item => {
+                        const [time, price, count] = item.value;
+                        return `${item.seriesName}\n${fmtDate(time)} · ${fmtMoney(price, options[0].currency)}\n可确认报价 ${count} 条`;
+                    }},
+                    grid: {left: 70, right: 24, top: compared ? 48 : 24, bottom: 45},
+                    xAxis: {type: 'time', axisLabel: {formatter: value => fmtDate(value), hideOverlap: true}},
+                    yAxis: {type: 'value', scale: true, axisLabel: {formatter: value => fmtMoney(value, options[0].currency)}},
+                    series: options.map((item, index) => ({
+                        name: item.return_date ? `返程 ${fmtTravelDate(item.return_date)}` : '最低参考价',
+                        type: 'line',
+                        showSymbol: true,
+                        symbol: index % 2 === 0 ? 'circle' : 'rect',
+                        symbolSize: 8,
+                        encode: {x: 0, y: 1},
+                        data: item.points.map(point => [new Date(point.searched_at).getTime(), point.min_price, point.offer_count]),
+                        lineStyle: {width: 3}
+                    }))
+                });
                 trendCharts.push(routeChart);
             });
         }
@@ -201,7 +231,7 @@
         async function loadDashboard(){
             refreshFx();
             document.getElementById('updatedAt').textContent='更新中…';
-            try { const [routes,prices,trends]=await Promise.all([getJson('/api/routes/'),getJson('/api/prices/latest'),getJson('/api/ai/price-trends?limit=500')]); renderRoutes(routes);renderPrices(prices);renderChart(trends,routes);document.getElementById('updatedAt').textContent=`更新于 ${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`; }
+            try { const [routes,prices,trends]=await Promise.all([getJson('/api/routes/'),getJson('/api/prices/latest'),getJson('/api/ai/price-trends?limit=500')]); renderRoutes(routes);renderPrices(prices);renderChart(trends);document.getElementById('updatedAt').textContent=`更新于 ${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`; }
             catch(e){ document.getElementById('latestList').innerHTML=`<div class="error">数据加载失败：${esc(e.message)}</div>`;document.getElementById('updatedAt').textContent='加载失败'; }
         }
         window.addEventListener('resize',()=>{trendCharts.forEach(item=>item.resize());fxChart?.resize();});

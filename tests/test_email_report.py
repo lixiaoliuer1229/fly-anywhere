@@ -75,10 +75,32 @@ class EmailReportTests(unittest.TestCase):
         rows = [SimpleNamespace(started_at=datetime(2026, 9, 10), currency=c, price=p)
                 for c, p in [("CNY", 4500), ("USD", 650)]]
         for data in ([], rows):
-            result = email_report.render_chart(route, data)
+            result = email_report.render_chart([(route, data)])
             self.assertTrue(result.startswith(b"\x89PNG\r\n\x1a\n"))
         with open('/tmp/fly-anywhere-email-preview.png', 'wb') as out:
             out.write(result)
+
+    def test_return_date_options_share_one_chart_with_separate_prices(self):
+        from matplotlib.figure import Figure
+
+        routes = [
+            SimpleNamespace(id=day, departure_city='BNE', arrival_city='CNS',
+                            departure_date=date(2027, 2, 4), return_date=date(2027, 2, day))
+            for day in (7, 8)
+        ]
+        db = MagicMock()
+        db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
+        histories = [[SimpleNamespace(started_at=datetime(2026, 11, 18), currency='CNY', price=price)]
+                     for price in (1050, 1320)]
+        with patch.object(email_report, 'price_history', side_effect=histories), \
+             patch.object(Figure, 'savefig', autospec=True, side_effect=Figure.savefig) as save:
+            message = email_report.build_report(db, routes[::-1], include_exchange=False)
+        save.assert_called_once()
+        chart = save.call_args.args[0].axes[0]
+        self.assertEqual([line.get_label() for line in chart.lines], ['返程 2027-02-07', '返程 2027-02-08'])
+        self.assertNotEqual(chart.lines[0].get_color(), chart.lines[1].get_color())
+        self.assertEqual([list(line.get_ydata()) for line in chart.lines], [[1050], [1320]])
+        self.assertEqual(sum(part.get_content_type() == 'image/png' for part in message.walk()), 1)
 
     def test_images_are_inline_without_download_attachments(self):
         route = SimpleNamespace(id=1, departure_city="CTU", arrival_city="YVR",

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import FlightOffer as FlightOfferRecord
-from app.models import SearchRun
+from app.models import Route, SearchRun
 from app.schemas import (
     FlightSearchRequest,
     FlightSearchResult,
@@ -30,17 +30,23 @@ def price_trends(
 ):
     """按搜索批次聚合最低网页参考价，供折线图展示。"""
     limit = max(1, min(limit, 500))
+    origin = func.coalesce(Route.departure_city, FlightOfferRecord.departure)
+    destination = func.coalesce(Route.arrival_city, FlightOfferRecord.arrival)
     query = (
         db.query(
-            FlightOfferRecord.departure,
-            FlightOfferRecord.arrival,
+            origin.label("departure"),
+            destination.label("arrival"),
             FlightOfferRecord.currency,
             FlightOfferRecord.search_run_id,
+            SearchRun.route_id,
+            Route.departure_date,
+            Route.return_date,
             SearchRun.completed_at,
             func.min(FlightOfferRecord.price).label("min_price"),
             func.count(FlightOfferRecord.id).label("offer_count"),
         )
         .join(SearchRun, SearchRun.id == FlightOfferRecord.search_run_id)
+        .outerjoin(Route, Route.id == SearchRun.route_id)
         .filter(
             SearchRun.status == "completed",
             SearchRun.completed_at.isnot(None),
@@ -49,16 +55,19 @@ def price_trends(
         )
     )
     if departure:
-        query = query.filter(FlightOfferRecord.departure == departure)
+        query = query.filter(origin == departure)
     if arrival:
-        query = query.filter(FlightOfferRecord.arrival == arrival)
+        query = query.filter(destination == arrival)
 
     rows = (
         query.group_by(
-            FlightOfferRecord.departure,
-            FlightOfferRecord.arrival,
+            origin,
+            destination,
             FlightOfferRecord.currency,
             FlightOfferRecord.search_run_id,
+            SearchRun.route_id,
+            Route.departure_date,
+            Route.return_date,
             SearchRun.completed_at,
         )
         .order_by(SearchRun.completed_at.desc())
@@ -66,20 +75,23 @@ def price_trends(
         .all()
     )
 
-    grouped: dict[tuple[str, str, str], list[PriceTrendPoint]] = {}
+    grouped = {}
     for row in reversed(rows):
-        key = (row.departure, row.arrival, row.currency)
-        grouped.setdefault(key, []).append(PriceTrendPoint(
+        key = (row.departure, row.arrival, row.currency, row.route_id)
+        if key not in grouped:
+            grouped[key] = PriceTrendSeries(
+                departure=row.departure, arrival=row.arrival, currency=row.currency,
+                route_id=row.route_id, departure_date=row.departure_date, return_date=row.return_date,
+                points=[],
+            )
+        grouped[key].points.append(PriceTrendPoint(
             searched_at=row.completed_at,
             min_price=float(row.min_price),
             offer_count=row.offer_count,
             search_run_id=row.search_run_id,
         ))
 
-    series = [
-        PriceTrendSeries(departure=key[0], arrival=key[1], currency=key[2], points=points)
-        for key, points in grouped.items()
-    ]
+    series = list(grouped.values())
     total_points = sum(len(item.points) for item in series)
     note = (
         "建议累计至少 8 次同航线查询后判断价格趋势。"

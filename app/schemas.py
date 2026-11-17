@@ -115,6 +115,9 @@ class PriceTrendSeries(BaseModel):
     departure: str
     arrival: str
     currency: str
+    route_id: int | None = None
+    departure_date: date | None = None
+    return_date: date | None = None
     points: list[PriceTrendPoint]
 
 
