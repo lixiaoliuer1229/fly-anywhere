@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import patch
 from app.services.scheduler import next_fetch_at
 from app.config import settings
@@ -28,9 +28,12 @@ class DailyScheduleTests(unittest.TestCase):
         from unittest.mock import MagicMock
         from app.services.scheduler import run_price_fetch
         db = MagicMock()
-        canada = SimpleNamespace(departure_city='CTU', arrival_city='YVR')
-        london = SimpleNamespace(departure_city='CTU', arrival_city=' lhr ')
-        db.query.return_value.filter.return_value.all.return_value = [canada, london]
+        dates = dict(departure_date=date(2027, 2, 4), return_date=date(2027, 2, 11))
+        canada = SimpleNamespace(departure_city='CTU', arrival_city='YVR', **dates)
+        london = SimpleNamespace(departure_city='CTU', arrival_city=' lhr ', **dates)
+        oslo_tianfu = SimpleNamespace(departure_city='TFU', arrival_city='OSL', **dates)
+        oslo_shuangliu = SimpleNamespace(departure_city=' ctu ', arrival_city='osl', **dates)
+        db.query.return_value.filter.return_value.all.return_value = [canada, london, oslo_tianfu, oslo_shuangliu]
         with patch('app.services.scheduler.SessionLocal', return_value=db), \
              patch('app.services.scheduler.search_flight_prices_by_criteria') as search, \
              patch('app.services.email_report.send_scheduled_reports') as send:

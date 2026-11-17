@@ -4,12 +4,14 @@ from app.database import SessionLocal
 from app.models import Route
 
 
-MONITORED_ROUTES = (
-    ("TFU", "OSL", date(2027, 2, 4), date(2027, 2, 11), 7292),
-)
+MONITORED_ROUTES: tuple[tuple[str, str, date, date, int], ...] = ()
 
 
 def configure() -> None:
+    if not MONITORED_ROUTES:
+        print("No routes configured; skipping database update.")
+        return
+
     db = SessionLocal()
     try:
         db.query(Route).update({Route.enabled: False}, synchronize_session=False)

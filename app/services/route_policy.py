@@ -6,6 +6,7 @@ CANADIAN_AIRPORTS = frozenset(
     if not line.startswith("#") for code in line.split()
 )
 LONDON_DESTINATIONS = frozenset({"LON", "LHR", "LGW", "STN", "LTN", "LCY", "SEN"})
+CHENGDU_AIRPORTS = frozenset({"CTU", "TFU"})
 
 
 def is_canadian_route(route):
@@ -14,4 +15,10 @@ def is_canadian_route(route):
 
 
 def is_excluded_from_monitoring(route):
-    return is_canadian_route(route) or route.arrival_city.strip().upper() in LONDON_DESTINATIONS
+    departure = route.departure_city.strip().upper()
+    arrival = route.arrival_city.strip().upper()
+    return (
+        is_canadian_route(route)
+        or arrival in LONDON_DESTINATIONS
+        or (departure in CHENGDU_AIRPORTS and arrival == "OSL")
+    )
