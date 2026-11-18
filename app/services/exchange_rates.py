@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models import ExchangeRate
 
 SOURCE_URL = "https://api.frankfurter.dev/v2/rate/CNY/JPY"
-MONITORED_QUOTES = ("JPY",)
+MONITORED_QUOTES = ("JPY", "AUD")
 
 
 class CurrentRateUnavailable(ValueError):

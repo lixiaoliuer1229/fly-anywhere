@@ -85,9 +85,15 @@ class ExchangeRateTests(unittest.TestCase):
         self.assertEqual(self.db.query(ExchangeRate).count(), 1)
 
     def test_schedule_fetches_without_routes(self):
+        def response_for(url, **kwargs):
+            quote = url.rsplit('/', 1)[1]
+            self.response.json.return_value.update(quote=quote, rate=20 if quote == 'JPY' else 0.21)
+            return self.response
+        self.http_client.return_value.__enter__.return_value.get.side_effect = response_for
         with patch('app.services.scheduler.SessionLocal', self.sessions):
-            run_exchange_rate_fetch()
-        self.assertEqual(self.db.query(ExchangeRate).count(), 1)
+            statuses = run_exchange_rate_fetch()
+        self.assertEqual(statuses, {'JPY': True, 'AUD': True})
+        self.assertEqual(self.db.query(ExchangeRate).count(), 2)
 
     def test_previous_day_and_unpublished_rate_do_not_write(self):
         from app.services.exchange_rates import CurrentRateUnavailable
@@ -117,10 +123,18 @@ class ExchangeRateTests(unittest.TestCase):
             fetch_exchange_rate(self.db, quote='CAD')
         self.http_client.assert_not_called()
 
-    def test_schedule_fetches_jpy_only(self):
+    def test_schedule_fetches_jpy_and_aud_independently(self):
         with patch('app.services.scheduler.SessionLocal', self.sessions), \
-             patch('app.services.exchange_rates.fetch_exchange_rate') as fetch:
+             patch('app.services.exchange_rates.fetch_exchange_rate', side_effect=[RuntimeError('JPY failed'), None]) as fetch:
             statuses = run_exchange_rate_fetch()
-        self.assertEqual(statuses, {'JPY': True})
-        fetch.assert_called_once()
-        self.assertEqual(fetch.call_args.kwargs['quote'], 'JPY')
+        self.assertEqual(statuses, {'JPY': False, 'AUD': True})
+        self.assertEqual([call.kwargs['quote'] for call in fetch.call_args_list], ['JPY', 'AUD'])
+
+    def test_aud_stored_separately_from_jpy(self):
+        fetch_exchange_rate(self.db)
+        self.response.json.return_value.update(quote='AUD', rate=0.21)
+        row = fetch_exchange_rate(self.db, quote='AUD')
+        self.assertEqual(row.rate, Decimal('0.21'))
+        self.assertEqual(self.db.query(ExchangeRate).filter_by(quote='JPY').one().rate, Decimal('20'))
+        self.assertEqual(self.http_client.return_value.__enter__.return_value.get.call_args.args[0],
+                         'https://api.frankfurter.dev/v2/rate/CNY/AUD')

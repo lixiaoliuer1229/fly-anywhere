@@ -15,7 +15,8 @@ from app.models import FlightOffer, SearchRun, ExchangeRate
 from app.services.exchange_rates import MONITORED_QUOTES
 from app.services.route_policy import is_excluded_from_monitoring
 
-CURRENCY_NAMES = {"JPY": "日元", "CAD": "加元"}
+CURRENCY_NAMES = {"JPY": "日元", "CAD": "加元", "AUD": "澳元"}
+AUD_RECIPIENTS = frozenset({"lcw.1994@qq.com", "514546454@qq.com"})
 
 
 def price_history(db, route_id):
@@ -157,6 +158,8 @@ def build_report(db, routes, exchange_status=None, *, recipient=None, include_ex
     message["Subject"] = f"{title} · {datetime.now():%Y-%m-%d}"
     message["From"] = settings.SMTP_FROM or settings.SMTP_USERNAME
     message["To"] = settings.EMAIL_TO if recipient is None else recipient
+    addresses = {address.lower() for _, address in getaddresses([message["To"]]) if address}
+    allow_aud = bool(addresses) and addresses.issubset(AUD_RECIPIENTS)
     introduction = "以下仅展示最近 90 天已保存的人民币机票参考报价。每个点表示一次成功查询的人民币最低价（含起售价），连线仅连接观测点，不代表期间连续报价。实际价格以预订页面为准。"
     lines = [title, introduction]
     sections = []
@@ -193,6 +196,8 @@ def build_report(db, routes, exchange_status=None, *, recipient=None, include_ex
                         'style="display:block;width:100%;max-width:900px;height:auto;border:0">')
     if include_exchange:
         for quote in (MONITORED_QUOTES if exchange_quotes is None else exchange_quotes):
+            if quote == "AUD" and not allow_aud:
+                continue
             currency_name = CURRENCY_NAMES[quote]
             pair_status = exchange_status.get(quote) if isinstance(exchange_status, dict) else exchange_status
             rows = exchange_history(db, quote)
@@ -228,6 +233,16 @@ def send_price_report(db, routes, exchange_status=None, *, recipient=None, inclu
     if not all((destination, settings.SMTP_HOST, settings.SMTP_USERNAME, settings.SMTP_PASSWORD)):
         print("Email report skipped: configure EMAIL_TO, SMTP_HOST, SMTP_USERNAME and SMTP_PASSWORD.")
         return False
+    addresses = [address for _, address in getaddresses([destination]) if address]
+    aud_addresses = [address for address in addresses if address.lower() in AUD_RECIPIENTS]
+    other_addresses = [address for address in addresses if address.lower() not in AUD_RECIPIENTS]
+    if include_exchange and aud_addresses and other_addresses:
+        results = [
+            send_price_report(db, routes, exchange_status, recipient=",".join(group),
+                              include_exchange=True, exchange_quotes=exchange_quotes)
+            for group in (aud_addresses, other_addresses)
+        ]
+        return all(results)
     message = build_report(db, routes, exchange_status=exchange_status,
                            recipient=destination, include_exchange=include_exchange, exchange_quotes=exchange_quotes)
     context = ssl.create_default_context()

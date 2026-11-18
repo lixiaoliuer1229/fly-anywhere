@@ -111,9 +111,9 @@ class EmailReportTests(unittest.TestCase):
              patch.object(email_report, 'render_chart', return_value=b'png'), \
              patch.object(email_report, 'exchange_history', return_value=[]), \
              patch.object(email_report, 'render_exchange_chart', return_value=b'png'):
-            message = email_report.build_report(db, [route])
+            message = email_report.build_report(db, [route], recipient="lcw.1994@qq.com,514546454@qq.com")
         images = [p for p in message.walk() if p.get_content_type() == 'image/png']
-        self.assertEqual(len(images), 2)
+        self.assertEqual(len(images), 3)
         self.assertEqual(images[0].get_content_disposition(), 'inline')
         self.assertIsNone(images[0].get_filename())
         self.assertFalse(any(p.get_content_disposition() == 'attachment' for p in message.walk()))
@@ -163,12 +163,47 @@ class EmailReportTests(unittest.TestCase):
         db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
         with patch.object(email_report, 'exchange_history', return_value=[]) as history, \
              patch.object(email_report, 'render_exchange_chart', return_value=b'png'):
-            message = email_report.build_report(db, [], exchange_status={'JPY': True})
+            message = email_report.build_report(db, [], recipient='private@example.com', exchange_status={'JPY': True})
         history.assert_called_once_with(db, 'JPY')
         for body in ('plain', 'html'):
             content = message.get_body(preferencelist=(body,)).get_content()
             self.assertIn('人民币 / 日元汇率', content)
             self.assertNotIn('人民币 / 加元汇率', content)
+
+    def test_aud_only_appears_for_named_recipients(self):
+        from decimal import Decimal
+        db = MagicMock()
+        db.query.return_value.filter.return_value.order_by.return_value.first.return_value = SimpleNamespace(
+            rate=Decimal('0.2'), rate_date=date(2026, 11, 18), fetched_at=datetime(2026, 11, 18))
+        with patch.object(email_report, 'exchange_history', return_value=[]), \
+             patch.object(email_report, 'render_exchange_chart', return_value=b'png'):
+            for recipient, allowed in (
+                ('lcw.1994@qq.com,514546454@qq.com', True),
+                ('514546454@qq.com', True),
+                ('private@example.com', False),
+                ('lcw.1994@qq.com,private@example.com', False),
+            ):
+                message = email_report.build_report(db, [], recipient=recipient,
+                                                    exchange_status={'JPY': False, 'AUD': True})
+                for body in ('plain', 'html'):
+                    content = message.get_body(preferencelist=(body,)).get_content()
+                    self.assertEqual('人民币 / 澳元汇率' in content, allowed)
+                    if allowed:
+                        self.assertIn('100 澳元 = 500.0000 人民币', content)
+                        aud = content.split('人民币 / 澳元汇率')[1]
+                        self.assertIn('本轮已获取', aud)
+                        self.assertNotIn('获取失败', aud)
+
+    def test_mixed_recipients_get_separate_aud_reports(self):
+        config = SimpleNamespace(EMAIL_ENABLED=True, EMAIL_TO='lcw.1994@qq.com,other@example.com',
+                                 SMTP_HOST='smtp.example.com', SMTP_USERNAME='sender',
+                                 SMTP_PASSWORD='test-secret', SMTP_PORT=465, SMTP_SSL=True)
+        with patch.object(email_report, 'settings', config), \
+             patch.object(email_report, 'build_report', return_value='message') as build, \
+             patch.object(email_report.smtplib, 'SMTP_SSL'):
+            self.assertTrue(email_report.send_price_report(MagicMock(), []))
+        self.assertEqual([call.kwargs['recipient'] for call in build.call_args_list],
+                         ['lcw.1994@qq.com', 'other@example.com'])
 
     def test_missing_credentials_does_not_connect(self):
         with patch.object(email_report.settings, 'EMAIL_ENABLED', True), \
